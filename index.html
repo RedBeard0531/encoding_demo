@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang=en>
+
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Column Encoding Demo</title>
+
+<!-- third-party libs -->
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"
+    integrity="sha256-/xUj+3OJU5yExlq6GSYGSHk7tPXikynS7ogEvDej/m4=" crossorigin="anonymous"></script>
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.23.0/themes/prism.min.css"
+    integrity="sha512-tN7Ec6zAFaVSG3TpNAKtk4DOHNpSwKHxxrsiw4GHKESGPs5njn/0sMCUMl2svV4wo4BK/rCP7juYz+zx+l6oeQ=="
+    crossorigin="anonymous" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.23.0/components/prism-core.min.js"
+    integrity="sha512-xR+IAyN+t9EBIOOJw5m83FTVMDsPd63IhJ3ElP4gmfUFnQlX9+eWGLp3P4t3gIjpo2Z1JzqtW/5cjgn+oru3yQ=="
+    crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.23.0/plugins/autoloader/prism-autoloader.min.js"
+    integrity="sha512-zc7WDnCM3aom2EziyDIRAtQg1mVXLdILE09Bo+aE1xk0AM2c2cVLfSW9NrxE5tKTX44WBY0Z2HClZ05ur9vB6A=="
+    crossorigin="anonymous"></script>
+
+<!-- first-party -->
+<script src="./encoder.js"></script>
+<style>
+    nav ul {
+        list-style-type: none;
+    }
+    nav li {
+        display: inline-block;
+        padding: .5em;
+        margin-left: .25em;
+        margin-right: .25em;
+        background-color: lightgrey;
+    
+    }
+    nav li.selected {
+        font-weight: bold;
+        background-color: darkgrey;
+    }
+    form:not(.selected) {
+        display: none;
+    }
+    #glossary {
+        top: 0;
+        right: 0;
+        position: fixed;
+        background: white;
+        border: 1px solid black;
+        //float: right;
+        padding: 2em;
+    }
+    #glossary dt {
+        font-family: monospace;
+        font-weight: bold;
+        margin-top: 1em
+    }
+    #error {
+        color: red;
+        font-family: monospace;
+    }
+    .arrInfo {
+        font-family: monospace;
+    }
+    table {
+        border: 1px solid black;
+    }
+    table td,
+    table th {
+        padding: .25em;
+        border: 1px solid lightgrey;
+    }
+    mono {
+        font-family: monospace;
+    }
+    .indent {
+        padding-left: 2em;
+    }
+    #output button {
+        margin-left: 1em;
+    }
+    input[type="text"] {
+        width: 50em;
+    }
+</style>
+
+</head>
+
+<body>
+    <h1>Column Store array info encoding demo</h1>
+    <nav>
+        <ul>
+            <li id=showEncoder class=selected for=encoderForm>Encoder
+            <li id=showDecoder for=decoderForm>Decoder
+        </ul>
+    </nav>
+
+    <form id=encoderForm class=selected>
+        <label for=object>Input a JSON object (JS shorthands like unquoted field names)</label>
+        <br>
+        <textarea id=object cols=50  rows=10 spellcheck="false">
+{a: [{b: [{}, 0, {}, 1]},
+     {c: 0},
+     null,
+     {b: [[2]], c: 1},
+     {b: [3, 4, 5, 6]},
+     {d: 0},
+     {d: 1},
+     {d: 2},
+     {d: 3}
+    ]
+}</textarea>
+        <br>
+        Number encoding:
+        <div>
+            <input type="radio" name=numStyle value=simple id=numStyleSimple checked>
+            <label for=numStyleSimple>Simple (eg, 7 or 42)</label>
+        </div>
+        <div>
+            <input type="radio" name=numStyle value=prefixed id=numStylePrefixed>
+            <label for=numStylePrefixed>Length-prefixed (eg, 1:7 or 2:42)</label>
+        </div>
+
+        <input id=submitEncoder type=button value=Encode>
+    </form>
+
+    <form id=decoderForm>
+        <label for=mergeObject>Input a JS object to merge into</label>
+        <br>
+        <textarea id=mergeObject cols=50  rows=2 spellcheck="false">{}</textarea>
+        <br>
+        <label for=path>Dotted path:</label><input type=text id=path value="a.b.c">
+        <br>
+        <label for=values>Value array:</label><input type=text id=values value="[1,2,3]">
+        <br>
+        <label for=arrInfo>Array Info:</label><input type=text id=arrInfo value="{{[|">
+        <br>
+        <input id=submitDecoder type=button value=Decode>
+    </form>
+
+    <div>
+        <details open id=glossary>
+            <summary><big>Array Info Components</big></summary>
+            <dl>
+                <dt>{
+                <dd>open object
+                <dt>}
+                <dd>close object
+                <dt>[ NUMBER?
+                <dd>open array and set index
+                <dd>index defaults to <mono>0</mono>
+                <dd><mono>[5</mono> is equivalent to <mono>[+5</mono>
+                <dt>+ NUMBER
+                <dd>increment index in array
+                <dt>]
+                <dd>close array
+                <dt>|
+                <dd>insert next value here
+                <dt>^
+                <dd>insert next value in own subobject
+                <dd>equivalent to <mono>{|}</mono>
+            </dl>
+        </details>
+        <h2>Output:</h2>
+        <div id=error></div>
+        <pre id=output></pre>
+    </div>
+
+    <script>
+        function simpleNumEncoder(x) { return x; }
+        function prefixedNumEncoder(x) {
+            if (typeof x != 'number') return x;
+            x = x.toString()
+            return `${x.length}:${x}`
+        }
+        function tryShowErrors(task, func) {
+            try {
+                return func();
+            } catch (e) {
+                $('#output').hide();
+                $('#error')
+                    .text(`Error encountered while ${task}:`)
+                    .append($('<p>').text(e.toString()))
+                    .show();
+                throw e;
+            }
+        }
+        function valueFor(id) {
+            return document.getElementById(id).value
+        }
+        function parseObject(json) {
+            // Using eval like this to support non-strict json, and provide reasonable error messages.
+            eval('var value = ' + json);
+            if (!$.isPlainObject(value))
+                throw Error('The top level must be an object');
+            return value;
+        }
+        function makeJsonNode(obj) {
+            let out = $('<pre>').append($('<code class=language-json>').text(JSON.stringify(obj, null, 4)))
+            Prism.highlightAllUnder(out[0])
+            return out
+        }
+        function recomputeEncoder() {
+            var value = tryShowErrors('parsing input object', () => parseObject(valueFor('object')))
+
+            const numEncoder = new FormData(document.getElementById('encoderForm')).get('numStyle') == 'simple'
+                ? simpleNumEncoder
+                : prefixedNumEncoder
+
+            const paths = encode(value);
+
+            let mkSpan = (text, attrs={}) => {
+                let out = $('<span>').text(text)
+                for (let [k, v] of Object.entries(attrs)) {
+                    out.attr(k, v)
+                }
+                return out
+            }
+            let mkMultiSpan = (...parts) => {
+                let span = $('<span>')
+                for (let part of parts) {
+                    if (typeof part == 'string')
+                        part = new Text(part)
+                    span.append(part)
+                }
+                return span
+            }
+            const output = document.getElementById('output')
+            output.innerHTML = ''
+            for (let [path, info] of Object.entries(paths).sort()) {
+                if (path == '\xff')
+                    path = '\\xFF (row id pseudo-column)'
+                const pathSpan = mkSpan(`Path: ${path}`).appendTo(output)
+                mkSpan('\n').appendTo(output)
+
+                if (info.hasSubObjects) {
+                    let marker = '  Marker: HAS_SUB_OBJECTS'
+                    if (info.values.length == 0)
+                        marker += ' (implicit with empty cell value)'
+                    mkSpan(marker + '\n').appendTo(output)
+                }
+
+                let arrInfoRest = info.arrInfo.map(numEncoder).join('')
+                if (arrInfoRest.length != 0) {
+                    mkSpan(`  full arrInfo: ${arrInfoRest}\n  split:\n`).appendTo(output)
+                } else if(info.values.length != 0) {
+                    mkSpan('  No arrInfo encoded for this path\n').appendTo(output)
+                }
+                for (var [i, val] of info.values.entries()) {
+                    let line = `      val: ${JSON.stringify(val)}`
+                    if (info.arrInfo.length != 0 ) {
+                        if (arrInfoRest.length == 0) {
+                            line += `\tarrInfo implicitly repeats last byte (${info.arrInfo[info.arrInfo.length-1]})`
+                        } else {
+                            let end = arrInfoRest.search(/[|^]/)
+                            line += '\tarrInfo: ' + arrInfoRest.substring(0, end+1)
+                            arrInfoRest = arrInfoRest.substring(end+1)
+                        }
+                    }
+                    mkSpan(line +'\n').appendTo(output)
+                }
+                if (info.values.length > 0) {
+                    mkSpan('  Decoded:\n').appendTo(output)
+                    if (info.hasSubObjects)
+                        mkSpan('    Warning: this path has subobjects so decoded output is incomplete\n').appendTo(output)
+
+                    let button = $('<button>').text("Seed decoder with path")
+                    button.click(() => {
+                        let arrInfoStr = info.arrInfo.map(numEncoder).join('')
+                        let valuesStr = JSON.stringify(info.values)
+                        $('#arrInfo').val(arrInfoStr)
+                        $('#values').val(valuesStr)
+                        $('#path').val(path)
+                        $('mergeObject').val('{}')
+                        $('#showDecoder').click()
+                        window.scrollTo(0, 0)
+                    });
+                    button.appendTo(pathSpan)
+
+                    const decoded = decode(path, info.values, info.arrInfo)
+                    makeJsonNode(decoded).appendTo($('<pre class=indent>').appendTo(output))
+                }
+            }
+
+
+            $('#error').hide()
+            $('#output').show()
+        }
+
+        function recomputeDecoder() {
+            const mergeObject = tryShowErrors('parsing merge object', () => parseObject(valueFor('mergeObject')))
+            const path = valueFor('path')
+            const arrInfo = valueFor('arrInfo')
+            const values = tryShowErrors('parsing values array', () => JSON.parse(valueFor('values')))
+            const output = document.getElementById('output')
+
+            const decoded = tryShowErrors('decoding array info', () => decode(path, values, arrInfo, mergeObject))
+
+            output.innerHTML = ''
+            makeJsonNode(decoded).appendTo(output)
+
+            $('#error').hide()
+            $('#output').show()
+        }
+
+        $('nav li').click((ev) => {
+            $('nav li').removeClass('selected')
+            $('form').removeClass('selected')
+
+            const target = $(ev.target);
+            target.addClass('selected')
+            const form = $('#' + target.attr('for'))
+            form.addClass('selected')
+            form.find('input:button').click()
+        });
+
+        $('#submitDecoder').click(recomputeDecoder)
+        $('#submitEncoder').click(recomputeEncoder)
+        $('input:radio').change(recomputeEncoder)
+        recomputeEncoder()
+    </script>
+</body>
+</html>
