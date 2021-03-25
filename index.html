@@ -46,13 +46,23 @@
         position: fixed;
         background: white;
         border: 1px solid black;
-        //float: right;
         padding: 2em;
+        overflow-y: auto;
+        max-height: 100vh;
+        width: min-content;
+    }
+    #glossary dl,
+    #glossary summary
+    {
+        width: max-content;
     }
     #glossary dt {
         font-family: monospace;
         font-weight: bold;
         margin-top: 1em
+    }
+    #glossary .wrap {
+        text-align: justify;
     }
     #error {
         color: red;
@@ -68,9 +78,6 @@
     table th {
         padding: .25em;
         border: 1px solid lightgrey;
-    }
-    mono {
-        font-family: monospace;
     }
     .indent {
         padding-left: 2em;
@@ -143,12 +150,14 @@
             <dl>
                 <dt>{
                 <dd>open object
+                <dd>consumes a path component
                 <dt>}
                 <dd>close object
+                <dd>unconsumes a path component
                 <dt>[ NUMBER?
                 <dd>open array and set index
-                <dd>index defaults to <mono>0</mono>
-                <dd><mono>[5</mono> is equivalent to <mono>[+5</mono>
+                <dd>index defaults to <code>0</code>
+                <dd><code>[5</code> is equivalent to <code>[+5</code>
                 <dt>+ NUMBER
                 <dd>increment index in array
                 <dt>]
@@ -157,8 +166,26 @@
                 <dd>insert next value here
                 <dt>^
                 <dd>insert next value in own subobject
-                <dd>equivalent to <mono>{|}</mono>
+                <dd>requires exactly 1 path component
+                <dd>equivalent to <code>{|}</code>
             </dl>
+            <div class=wrap>
+                <p>
+                Array info implicitly begins with a <code>{</code> that is not encoded.
+                The implicit <code>{</code> still consumes a path component.
+
+                <p>
+                <code>|</code> and <code>^</code> are both "terminal" bytes.
+                They complete a section of arrayInfo and consume a value.
+                When consuming a value, the entire path must be used,
+                meaning that there must be 1 component remaining for <code>^</code>,
+                and no components remaining for <code>|</code>.
+
+                <p>
+                The entire array info must end in a terminal byte.
+                If there are more values remaining, the final terminal
+                is implicitly repeated for each remaining value.
+            </div>
         </details>
         <h2>Output:</h2>
         <div id=error></div>
