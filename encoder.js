@@ -1,306 +1,170 @@
 "use strict";
 
-function assert(cond, ...rest) {
-    const ok = cond()
-    if (ok) return
-    console.assert(false, cond, ...rest)
-    throw Error(`Failed internal assertion: ${cond}\n(more info may be available in js console)`)
-}
 
-class ErrorWithCursors extends Error {
-    constructor(msg, ...cursors) {
-        super(msg)
-        this.cursors = cursors
-        this.extra = {}
+class ArrInfoEncoder {
+    static encode(root, options) {
+        return new ArrInfoEncoder(root, options).encode()
     }
 
-    addExtra(extra) {
-        Object.assign(this.extra, extra)
-        return this
+    constructor(root, {lengthPrefixNumbers}) {
+        this.infos = {}
+        this.lengthPrefixNumbers = lengthPrefixNumbers
+        this.walkObj('', [], root, true)
     }
 
-    toString() {
-        let out = this.message + '\n';
-        if (!$.isEmptyObject(this.extra)) {
-            out += 'extra context:\n'
-            for (let [name, val] of Object.entries(this.extra)) {
-                out += `  ${name}: ${JSON.stringify(val)}\n`
-            }
-        }
-        if (this.cursors.length > 0) {
-            out += 'cursors:\n'
-            for (let cursor of this.cursors) {
-                out += cursor.toString()
-                out += '\n'
-            }
-        }
-        return out;
-    }
-}
-
-class CursorBase {
-    constructor(name, arr, printPastLastRead) {
-        this.name = name
-        this.arr = arr // may be a string
-        this.index = 0
-        this.lastRead = -1
-        this.printPastLastRead = printPastLastRead
-    }
-
-    get length() {
-        return this.arr.length
-    }
-
-    empty() {
-        return this.arr.length == 0
-    }
-
-    hasMore() {
-        return this.index < this.arr.length
-    }
-    atLastElem() {
-        return this.index == this.arr.length-1
-    }
-
-    peek() {
-        assert(() => this.hasMore(), this)
-        this.lastRead = this.index
-        return this.arr[this.index]
-    }
-    consume() {
-        assert(() => this.hasMore(), this)
-        this.lastRead = this.index
-        return this.arr[this.index++]
-    }
-    unconsume() {
-        assert(() => this.index > 0, this)
-        this.index--
-        // Somewhat of a lie, but better reflects current position.
-        this.lastRead = this.index - 1
-    }
-
-    _specialCasesForPrinting() {
-        if (this.printPastLastRead) {
-            if (this.index == this.arr.length)
-                return '(cursor past end)'
+    walkObj(path, arrInfoPrefix, obj, isRoot = false) {
+        if (isRoot) {
+            this.infoFor('\xff').hasSubObjects = true
+            assert(() => path == '', this)
+            var pathPrefix = ''
+            var arrInfo = arrInfoPrefix
         } else {
-            // In the printPastLastRead case, we print the cursor at index 0
-            if (this.lastRead == -1)
-                return '(nothing read yet)'
+            this.infoFor(path).hasSubObjects = true
+            var pathPrefix = path + '.'
+            var arrInfo = arrInfoPrefix.concat(['{'])
         }
-        return null
-    }
 
-    _indexForPrinting() {
-        return this.printPastLastRead ? this.lastRead + 1 : this.lastRead;
-    }
-}
-
-class ArrayCursor extends CursorBase {
-    constructor(...args) {
-        super(...args)
-        assert(() => Array.isArray(this.arr), this)
-    }
-    toString() {
-        let row = '['
-        let offset
-        let len
-        for (let i = 0; i < this.arr.length; i++) {
-            if (i == this._indexForPrinting())
-                offset = row.length
-            const elem = JSON.stringify(this.arr[i])
-            len = elem.length
-            row += elem
-            if (i < this.arr.length - 1)
-                row += ', '
+        for (let field in obj) {
+            this.handleElem(pathPrefix + field, arrInfo, obj[field])
         }
-        row += ']'
-        let caretRow = this._specialCasesForPrinting() || ''.padStart(offset) + '^'.padEnd(len, '~')
-        return `${this.name}:\n${row}\n${caretRow}\n`
-    }
-};
-
-class StringCursor extends CursorBase {
-    constructor(...args) {
-        super(...args)
-        assert(() => typeof this.arr == 'string', this)
     }
 
-    toString() {
-        let caretRow = this._specialCasesForPrinting() || '^'.padStart(this._indexForPrinting() + 1)
-        return `${this.name}:\n${this.arr}\n${caretRow}\n`
+    walkArr(path, arrInfoPrefix, arr) {
+        let arrInfo = arrInfoPrefix.concat(['[', 0])
+        const arrInfoIx = arrInfo.length - 1
+        for (let i = 0; i < arr.length; i++) {
+            arrInfo[arrInfoIx] = i
+            this.handleElem(path, arrInfo, arr[i])
+        }
     }
 
-    peekIsNumber() {
-        let c = this.peek();
-        return c >= '0' && c <= '9'
+    handleElem(path, arrInfoPrefix, elem) {
+        if (Array.isArray(elem)) {
+            if (elem.length != 0)
+                return this.walkArr(path, arrInfoPrefix, elem)
+            // empty array treated as leaf scalar
+        } else if ($.isPlainObject(elem)) {
+            if (!$.isEmptyObject(elem))
+                return this.walkObj(path, arrInfoPrefix, elem)
+            // empty object treated as leaf scalar
+        }
+
+        let info = this.infoFor(path)
+        info.values.push(elem)
+        info.rawArrInfos.push(arrInfoPrefix.concat(['|']))
     }
-    consumeNumber() {
-        assert(() => this.peekIsNumber(), this)
-        let out = 0
-        while (this.hasMore() && this.peekIsNumber() || this.peek() == ':') {
-            let c = this.consume();
-            if (c == ':') {
-                // Ignoring length prefix.
-                out = 0
+
+    // Helper that returns the info for a path, constructing the default if none exists yet
+    infoFor(path) {
+        if (path in this.infos)
+            return this.infos[path]
+
+        return (this.infos[path] = {
+            hasSubObjects: false,
+            values: [],
+            rawArrInfos: [],
+            arrInfo: [],
+        })
+    }
+
+    encodeNum(num) {
+        assert(() => typeof num == 'number')
+        const str = num.toString()
+        assert(() => str.length <= 9)
+        if (this.lengthPrefixNumbers)
+            return `${str.length}:${str}`
+        return str
+    }
+
+    // This is called to encode the output after the object has been completely walked.
+    encode() {
+        for (let info of Object.values(this.infos)) {
+            assert(() => info.values.length == info.rawArrInfos.length)
+            if (info.values.length == 0)
+                continue // This can happen if we only see this path to mark existence of subobjects
+
+            // start with a copy of the first arrInfo, then encode the deltas to each after it
+            let arrInfo = Array.from(info.rawArrInfos[0])
+            for (let i = 1; i < info.rawArrInfos.length; i++) {
+                const lastArrInfo = info.rawArrInfos[i - 1]
+                const myArrInfo = info.rawArrInfos[i]
+
+                // Find the first difference
+                let firstDiff = null
+                for (let j = 1; j < lastArrInfo.length; j++) {
+                    if (myArrInfo[j] != lastArrInfo[j]) {
+                        firstDiff = j
+                        break
+                    }
+                }
+                assert(() => firstDiff !== null)
+
+                // Close up all deeper objects and arrays in lastArrInfo.
+                for (let action of lastArrInfo.slice(firstDiff).reverse()) {
+                    if (action == '[') {
+                        arrInfo.push(']')
+                    } else if (action == '{') {
+                        arrInfo.push('}')
+                    }
+                }
+
+                // If they differ by index in the same array, encode the number of skipped elements, if
+                // any.
+                if (typeof lastArrInfo[firstDiff] == 'number') {
+                    // Because of how we walk arrays, if last is a number, this must be a higher number.
+                    assert(() => typeof myArrInfo[firstDiff] == 'number')
+                    let delta = myArrInfo[firstDiff] - lastArrInfo[firstDiff]
+                    assert(() => delta >= 1, myArrInfo[firstDiff], lastArrInfo[firstDiff], delta)
+
+                    // We implicitly advance by 1, so only encode when skipping indexes
+                    let skip = delta - 1
+                    if (skip > 0) {
+                        arrInfo.push('+')
+                        arrInfo.push(skip)
+                    }
+                    firstDiff++
+                }
+
+                // Now put the rest of myArrInfo into arrInfo
+                for (let action of myArrInfo.slice(firstDiff)) {
+                    arrInfo.push(action)
+                }
+            }
+
+            // If there are no arrays then no arrayInfo is needed
+            if (arrInfo.indexOf('[') == -1) {
+                assert(() => info.values.length == 1)
+                // arrInfo must be a run of { followed by as single |
+                assert(() => arrInfo.join('').match(/^\{*\|$/))
+                info.arrInfo = ''
                 continue
             }
-            const num = +c // convert c to a number
-            if (out == 0 && num == 0) {
-                throw new ErrorWithCursors("first digit of number can't be zero", this)
-            }
-            out *= 10
-            out += num
+
+            // Remove all explicitly encoded zero indexes, since they are implicit
+            arrInfo = arrInfo.filter(e => e !== 0)
+
+            // encode all numbers, then flatten to a string
+            let arrInfoStr = arrInfo.map((e) => typeof e == 'string' ? e : this.encodeNum(e)).join('')
+
+            // Replace any {|} or a final {| with ^
+            arrInfoStr.replace(/\{\|\}|\{\|$/g, '^')
+
+            // Reduce final run of | or ^ to a single copy (it is implicitly repeated)
+            arrInfoStr.replace(/([|^])\1+$/, '$1')
+
+            info.arrInfo = arrInfoStr
         }
-        return out
+
+        return this.infos
     }
 }
 
-function encode(root) {
-    let paths = {}
-    {
-        let dottedPath = ''
-        let arrInfo = []
-        function mutPath(path) {
-            if (path in paths)
-                return paths[path]
-            return (paths[path] = {
-                hasSubObjects: false,
-                values: [],
-                rawArrInfos: [],
-                arrInfo: [],
-            })
-        }
-        function walkObj(obj) {
-            const isRoot = obj == root
-            mutPath(isRoot ? '\xff' : dottedPath).hasSubObjects = true
-
-            if (!isRoot)
-                arrInfo.push('{')
-            const oldDottedPath = dottedPath
-            for (let field in obj) {
-                dottedPath += (isRoot ? '' : '.') + field
-                handleElem(obj[field])
-                dottedPath = oldDottedPath
-            }
-            if (!isRoot)
-                arrInfo.pop()
-        }
-        function walkArr(arr) {
-            arrInfo.push('[')
-            for (let i = 0; i < arr.length; i++) {
-                arrInfo.push(i)
-                handleElem(arr[i])
-                arrInfo.pop()
-            }
-            arrInfo.pop()
-        }
-        function handleElem(elem) {
-            if (Array.isArray(elem)) {
-                if (elem.length != 0)
-                    return walkArr(elem)
-                // empty array treated as leaf scalar
-            } else if ($.isPlainObject(elem)) {
-                if (!$.isEmptyObject(elem))
-                    return walkObj(elem)
-                // empty object treated as leaf scalar
-            }
-
-            let info = mutPath(dottedPath)
-            info.values.push(elem)
-            info.rawArrInfos.push(arrInfo.concat(['|']))
-        }
-        walkObj(root)
+class ArrInfoDecoder {
+    static decode(path, values, arrInfo, into = {}) {
+        new ArrInfoDecoder(path, values, arrInfo).decodeRoot(into)
+        return into
     }
 
-    for (let path in paths) {
-        let info = paths[path]
-        assert(() => info.values.length == info.rawArrInfos.length)
-        if (info.rawArrInfos.length == 0)
-            continue
-
-        let arrInfo = Array.from(info.rawArrInfos[0]) // start with a copy of the first arrInfo.
-        for (let i = 1; i < info.rawArrInfos.length; i++) {
-            const lastArrInfo = info.rawArrInfos[i-1]
-            const myArrInfo = info.rawArrInfos[i]
-
-            // Find the first difference
-            let firstDiff = null
-            for (let j = 1; j < lastArrInfo.length; j++) {
-                if (myArrInfo[j] != lastArrInfo[j]) {
-                    firstDiff = j
-                    break
-                }
-            }
-            assert(() => firstDiff !== null)
-
-            // Close up all deeper objects and arrays in lastArrInfo.
-            for (let j = lastArrInfo.length-1; j >= firstDiff ; j--) {
-                if (lastArrInfo[j] == '[') {
-                    arrInfo.push(']')
-                } else if (lastArrInfo[j] == '{') {
-                    arrInfo.push('}')
-                }
-            }
-
-            // If they differ by index in the same array, encode the number of skipped elements, if
-            // any.
-            if (typeof lastArrInfo[firstDiff] == 'number') {
-                assert(() => typeof myArrInfo[firstDiff] == 'number')
-                let delta = myArrInfo[firstDiff] - lastArrInfo[firstDiff]
-                assert(() => delta >= 1, myArrInfo[firstDiff], lastArrInfo[firstDiff], delta)
-                let skip = delta - 1
-                if (skip > 0) {
-                    arrInfo.push('+')
-                    arrInfo.push(skip)
-                }
-                firstDiff++
-            }
-
-            // Now put the rest of myArrInfo into arrInfo
-            for (let j = firstDiff; j < myArrInfo.length; j++) {
-                arrInfo.push(myArrInfo[j])
-            }
-        }
-
-        // If there are no arrays no arrayInfo is needed
-        if (arrInfo.indexOf('[') == -1) {
-            assert(() => info.values.length == 1)
-            info.arrInfo = []
-            continue
-        }
-
-        // Remove all explicitly encoded zero indexes, since they are implicit
-        arrInfo = arrInfo.filter(e => e !== 0)
-
-        // Replace runs of {|} with ^
-        for (let i = 0; i < arrInfo.length - 2; i++) {
-            if (arrInfo[i] == '{' && arrInfo[i+1] == '|' && arrInfo[i+2] == '}') {
-                arrInfo.splice(i, 3, '^')
-            }
-        }
-
-        // Replace a final {| with ^
-        if (arrInfo.length >= 2 && arrInfo[arrInfo.length-2] == '{' && arrInfo[arrInfo.length-1] == '|') {
-            arrInfo.pop()
-            arrInfo.pop()
-            arrInfo.push('^')
-        }
-
-        // Reduce final run of | or ^
-        while (arrInfo.length > 1 && arrInfo[arrInfo.length-1] == arrInfo[arrInfo.length-2]) {
-            const lastChar = arrInfo[arrInfo.length-1] 
-            assert(() => lastChar == '|' || lastChar == '^', arrInfo)
-            arrInfo.pop()
-        }
-
-        info.arrInfo = arrInfo
-    }
-
-    return paths
-}
-
-class Decoder {
     constructor(path, values, arrInfo) {
         // Last argument is true for cursors that are only read from at the end of processing a value.
         // This results in better error printing, by putting the cursor on the element where the error applies.
@@ -514,13 +378,164 @@ class Decoder {
                 ...extra,
             })
     }
+}
+
+//
+// Everything below here is internal helpers
+//
+
+function assert(cond, ...rest) {
+    const ok = cond()
+    if (ok) return
+    console.assert(false, cond, ...rest)
+    throw Error(`Failed internal assertion: ${cond}\n(more info may be available in js console)`)
+}
+
+class ErrorWithCursors extends Error {
+    constructor(msg, ...cursors) {
+        super(msg)
+        this.cursors = cursors
+        this.extra = {}
+    }
+
+    addExtra(extra) {
+        Object.assign(this.extra, extra)
+        return this
+    }
+
+    toString() {
+        let out = this.message + '\n';
+        if (!$.isEmptyObject(this.extra)) {
+            out += 'extra context:\n'
+            for (let [name, val] of Object.entries(this.extra)) {
+                out += `  ${name}: ${JSON.stringify(val)}\n`
+            }
+        }
+        if (this.cursors.length > 0) {
+            out += 'cursors:\n'
+            for (let cursor of this.cursors) {
+                out += cursor.toString()
+                out += '\n'
+            }
+        }
+        return out;
+    }
+}
+
+class CursorBase {
+    constructor(name, arr, printPastLastRead) {
+        this.name = name
+        this.arr = arr // may be a string
+        this.index = 0
+        this.lastRead = -1
+        this.printPastLastRead = printPastLastRead
+    }
+
+    get length() {
+        return this.arr.length
+    }
+
+    empty() {
+        return this.arr.length == 0
+    }
+
+    hasMore() {
+        return this.index < this.arr.length
+    }
+    atLastElem() {
+        return this.index == this.arr.length-1
+    }
+
+    peek() {
+        assert(() => this.hasMore(), this)
+        this.lastRead = this.index
+        return this.arr[this.index]
+    }
+    consume() {
+        assert(() => this.hasMore(), this)
+        this.lastRead = this.index
+        return this.arr[this.index++]
+    }
+    unconsume() {
+        assert(() => this.index > 0, this)
+        this.index--
+        // Somewhat of a lie, but better reflects current position.
+        this.lastRead = this.index - 1
+    }
+
+    _specialCasesForPrinting() {
+        if (this.printPastLastRead) {
+            if (this.index == this.arr.length)
+                return '(cursor past end)'
+        } else {
+            // In the printPastLastRead case, we print the cursor at index 0
+            if (this.lastRead == -1)
+                return '(nothing read yet)'
+        }
+        return null
+    }
+
+    _indexForPrinting() {
+        return this.printPastLastRead ? this.lastRead + 1 : this.lastRead;
+    }
+}
+
+class ArrayCursor extends CursorBase {
+    constructor(...args) {
+        super(...args)
+        assert(() => Array.isArray(this.arr), this)
+    }
+    toString() {
+        let row = '['
+        let offset
+        let len
+        for (let i = 0; i < this.arr.length; i++) {
+            if (i == this._indexForPrinting())
+                offset = row.length
+            const elem = JSON.stringify(this.arr[i])
+            len = elem.length
+            row += elem
+            if (i < this.arr.length - 1)
+                row += ', '
+        }
+        row += ']'
+        let caretRow = this._specialCasesForPrinting() || ''.padStart(offset) + '^'.padEnd(len, '~')
+        return `${this.name}:\n${row}\n${caretRow}\n`
+    }
 };
 
-function decode(path, values, arrInfo, into = {}) {
-    if (typeof arrInfo != 'string') {
-        assert(() => Array.isArray(arrInfo), arrInfo)
-        arrInfo = arrInfo.join('')
+class StringCursor extends CursorBase {
+    constructor(...args) {
+        super(...args)
+        assert(() => typeof this.arr == 'string', this)
     }
-    new Decoder(path, values, arrInfo).decodeRoot(into)
-    return into
+
+    toString() {
+        let caretRow = this._specialCasesForPrinting() || '^'.padStart(this._indexForPrinting() + 1)
+        return `${this.name}:\n${this.arr}\n${caretRow}\n`
+    }
+
+    peekIsNumber() {
+        let c = this.peek();
+        return c >= '0' && c <= '9'
+    }
+    consumeNumber() {
+        assert(() => this.peekIsNumber(), this)
+        let out = 0
+        while (this.hasMore() && this.peekIsNumber() || this.peek() == ':') {
+            let c = this.consume();
+            if (c == ':') {
+                // Ignoring length prefix.
+                out = 0
+                continue
+            }
+            const num = +c // convert c to a number
+            if (out == 0 && num == 0) {
+                throw new ErrorWithCursors("first digit of number can't be zero", this)
+            }
+            out *= 10
+            out += num
+        }
+        return out
+    }
 }

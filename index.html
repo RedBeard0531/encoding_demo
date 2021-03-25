@@ -200,12 +200,6 @@
     </div>
 
     <script>
-        function simpleNumEncoder(x) { return x; }
-        function prefixedNumEncoder(x) {
-            if (typeof x != 'number') return x;
-            x = x.toString()
-            return `${x.length}:${x}`
-        }
         function tryShowErrors(task, func) {
             try {
                 return func();
@@ -235,11 +229,8 @@
         function recomputeEncoder() {
             var value = tryShowErrors('parsing input object', () => parseObject(valueFor('object')))
 
-            const numEncoder = new FormData(document.getElementById('encoderForm')).get('numStyle') == 'simple'
-                ? simpleNumEncoder
-                : prefixedNumEncoder
-
-            const paths = encode(value);
+            const lengthPrefixNumbers = new FormData(document.getElementById('encoderForm')).get('numStyle') == 'prefixed'
+            const infos = ArrInfoEncoder.encode(value, {lengthPrefixNumbers});
 
             let mkSpan = (text, attrs={}) => {
                 let out = $('<span>').text(text)
@@ -259,7 +250,7 @@
             }
             const output = document.getElementById('output')
             output.innerHTML = ''
-            for (let [path, info] of Object.entries(paths).sort()) {
+            for (let [path, info] of Object.entries(infos).sort()) {
                 if (path == '\xff')
                     path = '\\xFF (row id pseudo-column)'
                 const pathSpan = mkSpan(`Path: ${path}`).appendTo(output)
@@ -272,15 +263,18 @@
                     mkSpan(marker + '\n').appendTo(output)
                 }
 
-                let arrInfoRest = info.arrInfo.map(numEncoder).join('')
-                if (arrInfoRest.length != 0) {
-                    mkSpan(`  full arrInfo: ${arrInfoRest}\n  split:\n`).appendTo(output)
-                } else if(info.values.length != 0) {
+
+                const haveArrInfo = info.arrInfo.length != 0
+                if (haveArrInfo) {
+                    mkSpan(`  full arrInfo: ${info.arrInfo}\n  split:\n`).appendTo(output)
+                } else if (info.values.length != 0) {
                     mkSpan('  No arrInfo encoded for this path\n').appendTo(output)
                 }
+
+                let arrInfoRest = info.arrInfo
                 for (var [i, val] of info.values.entries()) {
                     let line = `      val: ${JSON.stringify(val)}`
-                    if (info.arrInfo.length != 0 ) {
+                    if (haveArrInfo) {
                         if (arrInfoRest.length == 0) {
                             line += `\tarrInfo implicitly repeats last byte (${info.arrInfo[info.arrInfo.length-1]})`
                         } else {
@@ -291,6 +285,7 @@
                     }
                     mkSpan(line +'\n').appendTo(output)
                 }
+
                 if (info.values.length > 0) {
                     mkSpan('  Decoded:\n').appendTo(output)
                     if (info.hasSubObjects)
@@ -298,9 +293,8 @@
 
                     let button = $('<button>').text("Seed decoder with info from this path")
                     button.click(() => {
-                        let arrInfoStr = info.arrInfo.map(numEncoder).join('')
                         let valuesStr = JSON.stringify(info.values)
-                        $('#arrInfo').val(arrInfoStr)
+                        $('#arrInfo').val(info.arrInfo)
                         $('#values').val(valuesStr)
                         $('#path').val(path)
                         $('mergeObject').val('{}')
@@ -309,7 +303,8 @@
                     });
                     button.appendTo(pathSpan)
 
-                    const decoded = decode(path, info.values, info.arrInfo)
+                    const decoded = ArrInfoDecoder.decode(path, info.values, info.arrInfo)
+                    console.log(decoded)
                     makeJsonNode(decoded).appendTo($('<pre class=indent>').appendTo(output))
                 }
             }
@@ -329,7 +324,8 @@
                 return out
             })
 
-            const decoded = tryShowErrors('decoding array info', () => decode(path, values, arrInfo, mergeObject))
+            const decoded = tryShowErrors('decoding array info',
+                () => ArrInfoDecoder.decode(path, values, arrInfo, mergeObject))
 
             const output = document.getElementById('output')
             output.innerHTML = ''
