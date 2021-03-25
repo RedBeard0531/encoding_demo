@@ -172,7 +172,7 @@
             <div class=wrap>
                 <p>
                 Array info implicitly begins with a <code>{</code> that is not encoded.
-                The implicit <code>{</code> still consumes a path component.
+                The implicit <code>{</code> consumes the first path component.
 
                 <p>
                 <code>|</code> and <code>^</code> are both "terminal" bytes.
@@ -185,10 +185,17 @@
                 The entire array info must end in a terminal byte.
                 If there are more values remaining, the final terminal
                 is implicitly repeated for each remaining value.
+                It is an error to run out of values while there is unconsumed array info.
+
+                <p>
+                Empty array info is used when there are no arrays in the path.
+                In this case there must be exactly on value, which may be the empty array.
+                This is equivalent to a <code>{</code> for each path component after the first,
+                followed by a single <code>|</code>.
             </div>
         </details>
         <h2>Output:</h2>
-        <div id=error></div>
+        <pre id=error></pre>
         <pre id=output></pre>
     </div>
 
@@ -205,10 +212,9 @@
             } catch (e) {
                 $('#output').hide();
                 $('#error')
-                    .text(`Error encountered while ${task}:`)
-                    .append($('<p>').text(e.toString()))
+                    .text(`Error encountered while ${task}:\n${e.toString()}`)
                     .show();
-                throw e;
+                throw e; // make 'break on uncaught exception' work
             }
         }
         function valueFor(id) {
@@ -290,7 +296,7 @@
                     if (info.hasSubObjects)
                         mkSpan('    Warning: this path has subobjects so decoded output is incomplete\n').appendTo(output)
 
-                    let button = $('<button>').text("Seed decoder with path")
+                    let button = $('<button>').text("Seed decoder with info from this path")
                     button.click(() => {
                         let arrInfoStr = info.arrInfo.map(numEncoder).join('')
                         let valuesStr = JSON.stringify(info.values)
@@ -317,11 +323,15 @@
             const mergeObject = tryShowErrors('parsing merge object', () => parseObject(valueFor('mergeObject')))
             const path = valueFor('path')
             const arrInfo = valueFor('arrInfo')
-            const values = tryShowErrors('parsing values array', () => JSON.parse(valueFor('values')))
-            const output = document.getElementById('output')
+            const values = tryShowErrors('parsing values array', () => {
+                const out = JSON.parse(valueFor('values'))
+                if (!Array.isArray(out)) throw 'values array must be an array'
+                return out
+            })
 
             const decoded = tryShowErrors('decoding array info', () => decode(path, values, arrInfo, mergeObject))
 
+            const output = document.getElementById('output')
             output.innerHTML = ''
             makeJsonNode(decoded).appendTo(output)
 
