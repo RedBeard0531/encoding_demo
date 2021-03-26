@@ -147,10 +147,10 @@ class ArrInfoEncoder {
             let arrInfoStr = arrInfo.map((e) => typeof e == 'string' ? e : this.encodeNum(e)).join('')
 
             // Replace any {|} or a final {| with ^
-            arrInfoStr.replace(/\{\|\}|\{\|$/g, '^')
+            arrInfoStr = arrInfoStr.replace(/\{\|\}|\{\|$/g, '^')
 
             // Reduce final run of | or ^ to a single copy (it is implicitly repeated)
-            arrInfoStr.replace(/([|^])\1+$/, '$1')
+            arrInfoStr = arrInfoStr.replace(/([|^])\1+$/, '$1')
 
             info.arrInfo = arrInfoStr
         }
