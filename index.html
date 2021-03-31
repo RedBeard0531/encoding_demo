@@ -50,6 +50,7 @@
         overflow-y: auto;
         max-height: 100vh;
         width: min-content;
+        box-sizing: border-box;
     }
     #glossary dl,
     #glossary summary
@@ -148,38 +149,51 @@
                 <dd><code>[5</code> is equivalent to <code>[+5</code>
                 <dt>+ NUMBER
                 <dd>increment index in array
+                <dd>think of this as "skipping"
                 <dt>]
                 <dd>close array
                 <dt>|
                 <dd>insert next value here
-                <dt>^
-                <dd>insert next value in own subobject
-                <dd>requires exactly 1 path component
-                <dd>equivalent to <code>{|</code>
+                <dd>consumes a value
+                <dd>creates nesting objects as needed
             </dl>
             <div class=wrap>
                 <p>
-                Array info implicitly begins with a <code>{</code> that is not encoded.
-                The implicit <code>{</code> consumes the first path component.
+                Array info implicitly begins with a <code>{</code> and ends
+                with an infinite run of <code>|</code>, neither of which is
+                encoded. The implicit <code>{</code> consumes the first path
+                component. Because the final <code>|</code> is implicit, you
+                could also think of it as a separator rather than a terminator
+                of arrInfo sections.
 
                 <p>
-                <code>|</code> and <code>^</code> are both "terminal" bytes.
-                They complete a section of arrayInfo and consume a value.
-                When consuming a value, the entire path must be used,
-                meaning that there must be 1 component remaining for <code>^</code>,
-                and no components remaining for <code>|</code>.
+                If the entire path hasn't been consumed prior to a <code>|</code>,
+                an object will be temporarily opened for each remaining path component,
+                and the value will be inserted in the inner most object.
 
                 <p>
-                The entire array info must end in a terminal byte.
-                If there are more values remaining, the final terminal
-                is implicitly repeated for each remaining value.
-                It is an error to run out of values while there is unconsumed array info.
+                After a <code>|</code> or a <code>]</code>, any objects between the
+                completed value or array and the next outer array will be implicitly
+                closed. This is because an object can only store a single value in a
+                field (which may be an array), so there is no posibility for another
+                value, and therefore there is no need to explicitly encode the closing
+                of an object. The outer most array is never closed, so there will
+                always be a next outer array.
+
+                <p>
+                It is an error to run out of values while there is unconsumed
+                array info. When you reach the end of the array info, there
+                must be at least one remaining value. All remaining values are
+                then inserted at that point.
 
                 <p>
                 Empty array info is used when there are no arrays in the path.
-                In this case there must be exactly on value, which may be the empty array.
-                This is equivalent to a <code>{</code> for each path component after the first,
-                followed by a single <code>|</code>.
+                In this case there must be exactly one value, which may be the
+                empty array. This is equivalent to a <code>{</code> for each
+                path component, followed by a single <code>|</code>, all of
+                which would be implicitly encoded. The cell encoding is optimized
+                for this case and it adds no overhead on top of the single value
+                to be encoded, even to indicate that there is no array info.
             </div>
         </details>
         <h2>Output:</h2>
@@ -263,9 +277,12 @@
                     let line = `      val: ${JSON.stringify(val)}`
                     if (haveArrInfo) {
                         if (arrInfoRest.length == 0) {
-                            line += `\tarrInfo implicitly repeats last byte (${info.arrInfo[info.arrInfo.length-1]})`
+                            line += `\tno arrInfo needed for this elem`
                         } else {
-                            let end = arrInfoRest.search(/[|^]/)
+                            let end = arrInfoRest.indexOf('|')
+                            if (end == -1) {
+                                end = arrInfoRest.length // String.subString() clamps, so +1 bellow is fine
+                            }
                             line += '\tarrInfo: ' + arrInfoRest.substring(0, end+1)
                             arrInfoRest = arrInfoRest.substring(end+1)
                         }

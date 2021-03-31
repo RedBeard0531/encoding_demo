@@ -140,11 +140,11 @@ class ArrInfoEncoder {
             // encode all numbers, then flatten to a string
             let arrInfoStr = arrInfo.map((e) => typeof e == 'string' ? e : this.encodeNum(e)).join('')
 
-            // Replace any {| with ^
-            arrInfoStr = arrInfoStr.replace(/\{\|/g, '^')
+            // Remove any runs of { before a |
+            arrInfoStr = arrInfoStr.replace(/\{+\|/g, '|')
 
-            // Reduce final run of | or ^ to a single copy (it is implicitly repeated)
-            arrInfoStr = arrInfoStr.replace(/([|^])\1+$/, '$1')
+            // Remove final run of |
+            arrInfoStr = arrInfoStr.replace(/\|+$/, '')
 
             info.arrInfo = arrInfoStr
         }
@@ -183,23 +183,27 @@ class ArrInfoDecoder {
         if (!this.arrInfo.empty())
             return this.decodeObj(into)
 
+        // Simple no-array case:
         this.uassert('when arrInfo is empty, must have exactly one value',
                      this.values.length == 1)
+        this.decodeNestedPath(into)
+    }
 
-        // Simple no-array case:
-        while (this.path.hasMore()) {
-            const field = this.consumePathPart()
-            this.uassert(`attempting to insert a field '${field}' into non-object ${into}`,
-                         $.isPlainObject(into))
+    decodeNestedPath(into) {
+        const field = this.consumePathPart()
+        this.uassert(`attempting to insert a field '${field}' into non-object ${into}`,
+                     $.isPlainObject(into))
 
-            if (!this.path.hasMore()) {
-                into[field] = this.consumeValue()
-                return
-            }
-
+        if (this.path.hasMore()) {
             if (!(field in into)) into[field] = {}
-            into = into[field]
+            this.decodeNestedPath(into[field])
+        } else {
+            this.uassert(`attempting to overwrite field '${field}'`,
+                         !(field in into))
+            into[field] = this.consumeValue()
         }
+
+        this.unconsumePathPart()
     }
 
     decodeObj(into) {
@@ -209,16 +213,6 @@ class ArrInfoDecoder {
 
         const action = this.consumeArrInfo()
         switch (action) {
-            case '^':
-                if (!(field in into)) into[field] = {}
-                this.doCaret(into[field]);
-                break
-            case '|':
-                this.uassert(`attempting to overwrite field '${field}'`,
-                             !(field in into))
-                this.assertConsumedFullPath()
-                into[field] = this.consumeValue();
-                break
             case '{':
                 if (!(field in into)) into[field] = {}
                 this.decodeObj(into[field])
@@ -227,9 +221,14 @@ class ArrInfoDecoder {
                 if (!(field in into)) into[field] = []
                 this.decodeArr(into[field])
                 break
+
+            // These are both error cases
+            case '|':
+                this.uassert(`encountered a '|' following a '{'. Runs of '{' before a '|' are redundant and should be removed`,
+                             false)
             default:
-                this.uassert(`unexpected action '${action}' while decoding an object, expected one of [{|^`,
-                             false);
+                this.uassert(`unexpected action '${action}' while decoding an object, expected one of [{`,
+                             false)
         }
         this.unconsumePathPart()
     }
@@ -256,18 +255,17 @@ class ArrInfoDecoder {
 
             const action = this.consumeArrInfo()
             switch (action) {
-                case '^':
-                    inserted = true
-                    if (into[index] == undefined) into[index] = {}
-                    this.doCaret(into[index++])
-                    break
                 case '|':
                     inserted = true
-                    this.uassert(`attempting to overwrite element at index ${index}`,
-                                 into[index] == undefined,
-                                 {index})
-                    this.assertConsumedFullPath()
-                    into[index++] = this.consumeValue()
+                    if (this.path.hasMore()) {
+                        if (into[index] == undefined) into[index] = {}
+                        this.decodeNestedPath(into[index++])
+                    } else {
+                        this.uassert(`attempting to overwrite element at index ${index}`,
+                                     into[index] == undefined,
+                                     {into})
+                        into[index++] = this.consumeValue()
+                    }
                     break
                 case '{':
                     inserted = true
@@ -294,8 +292,8 @@ class ArrInfoDecoder {
                     this.outputPos.pop()
                     return
                 default:
-                    this.uassert(`unexpected action '${action}' while decoding an array, expected one of []+{|^`,
-                                 false);
+                    this.uassert(`unexpected action '${action}' while decoding an array, expected one of []+{|`,
+                                 false)
             }
         }
 
@@ -308,31 +306,15 @@ class ArrInfoDecoder {
 
         this.uassert("ran out of values before consuming full arrInfo",
                      this.consumedAllArrInfo)
-        return true;
+        return true
     }
 
-    doCaret(into) {
-        const field = this.consumePathPart()
-        this.uassert("'^' must consume last path component",
-                     !this.path.hasMore())
-        this.uassert(`attempting to insert a field '${field}' into non-object ${into}`,
-                     $.isPlainObject(into))
-        this.uassert(`attempting to overwrite field '${field}'`,
-                     !(field in into))
-        into[field] = this.consumeValue()
-        this.unconsumePathPart()
-    }
-
-    assertConsumedFullPath() {
-        this.uassert("Must have consumed full path to process '|'",
-                     !this.path.hasMore())
-    }
     consumePathPart() {
         this.uassert("Attempting to consume path component but at end",
                      this.path.hasMore())
         const out = this.path.consume()
         this.outputPos.push(out)
-        return out;
+        return out
     }
     unconsumePathPart() {
         this.path.unconsume()
@@ -340,17 +322,12 @@ class ArrInfoDecoder {
     }
 
     consumeArrInfo() {
-        assert(() => this.arrInfo.hasMore(), this)
-        const out = this.arrInfo.peek()
-        if (this.arrInfo.atLastElem()) {
+        if (!this.arrInfo.hasMore()) {
             this.consumedAllArrInfo = true
-            this.uassert(`last byte of arrInfo must be '|' or '^', but found '${out}'`,
-                         ['|', '^'].includes(out))
-            // stay positioned here, and repeat last terminal byte
-        } else {
-            this.arrInfo.consume()
+            return '|'
         }
-        return out
+
+        return this.arrInfo.consume()
     }
 
     consumeValue() {
@@ -359,7 +336,7 @@ class ArrInfoDecoder {
     }
 
     uassert(msg, cond, extra = {}) {
-        if (cond) return;
+        if (cond) return
         throw new ErrorWithCursors(msg, this.path, this.arrInfo, this.values)
             .addExtra({
                 outputPos: this.outputPos,
@@ -393,7 +370,7 @@ class ErrorWithCursors extends Error {
     }
 
     toString() {
-        let out = this.message + '\n';
+        let out = this.message + '\n'
         if (!$.isEmptyObject(this.extra)) {
             out += 'extra context:\n'
             for (let [name, val] of Object.entries(this.extra)) {
@@ -407,7 +384,7 @@ class ErrorWithCursors extends Error {
                 out += '\n'
             }
         }
-        return out;
+        return out
     }
 }
 
@@ -465,7 +442,7 @@ class CursorBase {
     }
 
     _indexForPrinting() {
-        return this.printPastLastRead ? this.lastRead + 1 : this.lastRead;
+        return this.printPastLastRead ? this.lastRead + 1 : this.lastRead
     }
 }
 
@@ -491,7 +468,7 @@ class ArrayCursor extends CursorBase {
         let caretRow = this._specialCasesForPrinting() || ''.padStart(offset) + '^'.padEnd(len, '~')
         return `${this.name}:\n${row}\n${caretRow}\n`
     }
-};
+}
 
 class StringCursor extends CursorBase {
     constructor(...args) {
@@ -505,14 +482,16 @@ class StringCursor extends CursorBase {
     }
 
     peekIsNumber() {
-        let c = this.peek();
+        if (!this.hasMore())
+            return false
+        let c = this.peek()
         return c >= '0' && c <= '9'
     }
     consumeNumber() {
         assert(() => this.peekIsNumber(), this)
         let out = 0
-        while (this.hasMore() && this.peekIsNumber() || this.peek() == ':') {
-            let c = this.consume();
+        while (this.hasMore() && this.peekIsNumber()) {
+            let c = this.consume()
             if (c == ':') {
                 // Ignoring length prefix.
                 out = 0
