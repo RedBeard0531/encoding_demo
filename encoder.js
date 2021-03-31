@@ -95,12 +95,10 @@ class ArrInfoEncoder {
                 }
                 assert(() => firstDiff !== null)
 
-                // Close up all deeper objects and arrays in lastArrInfo.
+                // Close up all deeper arrays in lastArrInfo.
                 for (let action of lastArrInfo.slice(firstDiff).reverse()) {
                     if (action == '[') {
                         arrInfo.push(']')
-                    } else if (action == '{') {
-                        arrInfo.push('}')
                     }
                 }
 
@@ -142,8 +140,8 @@ class ArrInfoEncoder {
             // encode all numbers, then flatten to a string
             let arrInfoStr = arrInfo.map((e) => typeof e == 'string' ? e : this.encodeNum(e)).join('')
 
-            // Replace any {|} or a final {| with ^
-            arrInfoStr = arrInfoStr.replace(/\{\|\}|\{\|$/g, '^')
+            // Replace any {| with ^
+            arrInfoStr = arrInfoStr.replace(/\{\|/g, '^')
 
             // Reduce final run of | or ^ to a single copy (it is implicitly repeated)
             arrInfoStr = arrInfoStr.replace(/([|^])\1+$/, '$1')
@@ -232,11 +230,6 @@ class ArrInfoDecoder {
             default:
                 this.uassert(`unexpected action '${action}' while decoding an object, expected one of [{|^`,
                              false);
-        }
-        if (!this.done()) {
-            const next = this.consumeArrInfo()
-            this.uassert(`expected '}' but found '${next}'`,
-                         next == '}')
         }
         this.unconsumePathPart()
     }
