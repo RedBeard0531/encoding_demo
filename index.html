@@ -65,6 +65,11 @@
     #glossary .wrap {
         text-align: justify;
     }
+    #glossary code {
+        background-color: #EEE;
+        padding-left:0.1em;
+        padding-right:0.1em;
+    }
     #error {
         color: red;
         font-family: monospace;
@@ -130,7 +135,7 @@
         <br>
         <label for=values>Value array:</label><input type=text id=values value="[1,2,3]">
         <br>
-        <label for=arrInfo>Array Info:</label><input type=text id=arrInfo value="{{[|">
+        <label for=arrInfo>Array Info:</label><input type=text id=arrInfo value="{{[">
         <br>
         <input id=submitDecoder type=button value=Decode>
     </form>
@@ -149,13 +154,15 @@
                 <dd><code>[5</code> is equivalent to <code>[+5</code>
                 <dt>+ NUMBER
                 <dd>increment index in array
-                <dd>think of this as "skipping"
+                <dd>think of this as “skipping”
                 <dt>]
                 <dd>close array
-                <dt>|
+                <dt>| NUMBER?
                 <dd>insert next value here
                 <dd>consumes a value
                 <dd>creates nesting objects as needed
+                <dd>repeats <code>NUMBER</code> <em>additional</em> times
+                <dd>eg, <code>|1</code> is <code>||</code> and <code>|3</code> is <code>||||</code>
             </dl>
             <div class=wrap>
                 <p>
@@ -267,24 +274,27 @@
 
                 const haveArrInfo = info.arrInfo.length != 0
                 if (haveArrInfo) {
-                    mkSpan(`  full arrInfo: ${info.arrInfo}\n  split:\n`).appendTo(output)
+                    mkSpan(`  full arrInfo: ${info.arrInfo}\n`).appendTo(output)
+                    mkSpan(`  full arrInfo length: ${info.arrInfo.length}\n  split:\n`).appendTo(output)
                 } else if (info.values.length != 0) {
                     mkSpan('  No arrInfo encoded for this path\n').appendTo(output)
                 }
 
-                let arrInfoRest = info.arrInfo
+                const re = /[^|]*(\|(\d*))?/g
+                let repeatsRemaining = 0
                 for (var [i, val] of info.values.entries()) {
                     let line = `      val: ${JSON.stringify(val)}`
                     if (haveArrInfo) {
-                        if (arrInfoRest.length == 0) {
-                            line += `\tno arrInfo needed for this elem`
+                        if (repeatsRemaining){
+                            repeatsRemaining--;
+                            line += `\t  RLE encoded '|' (${repeatsRemaining} left)`
+                        } else if (re.lastIndex == info.arrInfo.length) {
+                            line += `\t  no arrInfo needed for this elem`
                         } else {
-                            let end = arrInfoRest.indexOf('|')
-                            if (end == -1) {
-                                end = arrInfoRest.length // String.subString() clamps, so +1 bellow is fine
-                            }
-                            line += '\tarrInfo: ' + arrInfoRest.substring(0, end+1)
-                            arrInfoRest = arrInfoRest.substring(end+1)
+                            let [match, _, num] = re.exec(info.arrInfo)
+                            if (num)
+                                repeatsRemaining = num
+                            line += `\tarrInfo: ${match}`
                         }
                     }
                     mkSpan(line +'\n').appendTo(output)
@@ -312,7 +322,6 @@
                     makeJsonNode(decoded).appendTo($('<pre class=indent>').appendTo(output))
                 }
             }
-
 
             $('#error').hide()
             $('#output').show()

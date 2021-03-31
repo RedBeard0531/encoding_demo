@@ -146,6 +146,9 @@ class ArrInfoEncoder {
             // Remove final run of |
             arrInfoStr = arrInfoStr.replace(/\|+$/, '')
 
+            // Run length encode remaining runs of |
+            arrInfoStr = arrInfoStr.replace(/\|(\|+)/g, (_, repeats) => `|${repeats.length}`)
+
             info.arrInfo = arrInfoStr
         }
 
@@ -242,10 +245,7 @@ class ArrInfoDecoder {
         this.uassert(`attempting to insert an element into non-array ${into}`,
                      Array.isArray(into))
 
-        let index = 0
-        if (this.arrInfo.peekIsNumber())
-            index = this.arrInfo.consumeNumber()
-
+        let index = this.arrInfo.consumeOptionalNumber()
         let inserted = false
         const outputPosIx = this.outputPos.length
         this.outputPos.push(index)
@@ -257,15 +257,20 @@ class ArrInfoDecoder {
             switch (action) {
                 case '|':
                     inserted = true
-                    if (this.path.hasMore()) {
-                        if (into[index] == undefined) into[index] = {}
-                        this.decodeNestedPath(into[index++])
-                    } else {
-                        this.uassert(`attempting to overwrite element at index ${index}`,
-                                     into[index] == undefined,
-                                     {into})
-                        into[index++] = this.consumeValue()
-                    }
+                    let repeatsRemaining = this.arrInfo.consumeOptionalNumber()
+                    do {
+                        if (this.path.hasMore()) {
+                            if (into[index] == undefined) into[index] = {}
+                            this.decodeNestedPath(into[index++])
+                        } else {
+                            this.uassert(`attempting to overwrite element at index ${index}`,
+                                into[index] == undefined,
+                                {into})
+                            into[index++] = this.consumeValue()
+                        }
+                    } while (repeatsRemaining--);
+                    this.uassert("Extra | not run-length-encoded",
+                        !(this.arrInfo.hasMore() && this.arrInfo.peek() == '|'))
                     break
                 case '{':
                     inserted = true
@@ -281,8 +286,6 @@ class ArrInfoDecoder {
                     this.uassert('skipping in array without inserting anything (use "[5" rather than "[+5" to set initial index)',
                                  inserted)
                     inserted = false // expect to insert something after skipping
-                    this.uassert(`expected a number but found '${this.arrInfo.peek()}'`,
-                                 this.arrInfo.peekIsNumber())
                     index += this.arrInfo.consumeNumber()
                     break
 
@@ -412,9 +415,10 @@ class CursorBase {
         return this.index == this.arr.length-1
     }
 
-    peek() {
+    peek({modifyLastRead} = {modifyLastRead: true}) {
         assert(() => this.hasMore(), this)
-        this.lastRead = this.index
+        if (modifyLastRead)
+            this.lastRead = this.index
         return this.arr[this.index]
     }
     consume() {
@@ -481,22 +485,18 @@ class StringCursor extends CursorBase {
         return `${this.name}:\n${this.arr}\n${caretRow}\n`
     }
 
-    peekIsNumber() {
+    peekIsNumber({modifyLastRead} = {modifyLastRead: true}) {
         if (!this.hasMore())
             return false
         let c = this.peek()
         return c >= '0' && c <= '9'
     }
-    consumeNumber() {
-        assert(() => this.peekIsNumber(), this)
+
+    // Returns 0 if no number is present, since 0 is implicitly encoded.
+    consumeOptionalNumber() {
         let out = 0
-        while (this.hasMore() && this.peekIsNumber()) {
+        while (this.hasMore() && this.peekIsNumber({modifyLastRead: false})) {
             let c = this.consume()
-            if (c == ':') {
-                // Ignoring length prefix.
-                out = 0
-                continue
-            }
             const num = +c // convert c to a number
             if (out == 0 && num == 0) {
                 throw new ErrorWithCursors("first digit of number can't be zero", this)
@@ -505,5 +505,12 @@ class StringCursor extends CursorBase {
             out += num
         }
         return out
+    }
+    consumeNumber() {
+        if (!this.hasMore())
+            throw new ErrorWithCursors(`expected a number but hit end`, this)
+        if (!this.peekIsNumber())
+            throw new ErrorWithCursors(`expected a number but found '${this.peek()}'`, this)
+        return this.consumeOptionalNumber();
     }
 }
