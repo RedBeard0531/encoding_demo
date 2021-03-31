@@ -2,13 +2,12 @@
 
 
 class ArrInfoEncoder {
-    static encode(root, options) {
-        return new ArrInfoEncoder(root, options).encode()
+    static encode(root) {
+        return new ArrInfoEncoder(root).encode()
     }
 
-    constructor(root, {lengthPrefixNumbers}) {
+    constructor(root) {
         this.infos = {}
-        this.lengthPrefixNumbers = lengthPrefixNumbers
         this.walkObj('', [], root, true)
     }
 
@@ -69,11 +68,8 @@ class ArrInfoEncoder {
 
     encodeNum(num) {
         assert(() => typeof num == 'number')
-        const str = num.toString()
-        assert(() => str.length <= 9)
-        if (this.lengthPrefixNumbers)
-            return `${str.length}:${str}`
-        return str
+        assert(() => num >= 1)
+        return num.toString()
     }
 
     // This is called to encode the output after the object has been completely walked.

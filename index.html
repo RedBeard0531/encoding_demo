@@ -117,16 +117,6 @@
     ]
 }</textarea>
         <br>
-        Number encoding:
-        <div>
-            <input type="radio" name=numStyle value=simple id=numStyleSimple checked>
-            <label for=numStyleSimple>Simple (eg, 7 or 42)</label>
-        </div>
-        <div>
-            <input type="radio" name=numStyle value=prefixed id=numStylePrefixed>
-            <label for=numStylePrefixed>Length-prefixed (eg, 1:7 or 2:42)</label>
-        </div>
-
         <input id=submitEncoder type=button value=Encode>
     </form>
 
@@ -229,8 +219,7 @@
         function recomputeEncoder() {
             var value = tryShowErrors('parsing input object', () => parseObject(valueFor('object')))
 
-            const lengthPrefixNumbers = new FormData(document.getElementById('encoderForm')).get('numStyle') == 'prefixed'
-            const infos = ArrInfoEncoder.encode(value, {lengthPrefixNumbers});
+            const infos = ArrInfoEncoder.encode(value);
 
             let mkSpan = (text, attrs={}) => {
                 let out = $('<span>').text(text)
