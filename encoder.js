@@ -199,6 +199,25 @@ class ArrInfoDecoder {
         return into
     }
 
+    /**
+     * Attempts to compute a projection for a column using the encoding information.
+     * @param {String} path The dotted path to compute an inclusion projection for. We want the
+     *     object that would result by executing the pipeline [{$project: {<path>: 1}}].
+     * @param {Object} encodingInfo The entire encoding object. Ideally you can reconstruct the
+     *     answer from just `encodingInfo[path]`, but you
+     * @returns {answer: {Object}, extraColumnsConsulted: [{String}], needsFetch: {bool}}
+     * If you cannot compute the answer with the encoding scheme, just return {needsFetch: true}.
+     */
+    static answerProjection(path, encodingInfo) {
+        if (path in encodingInfo) {
+            let into = {};
+            new ArrInfoDecoder(path, encodingInfo[path].values, encodingInfo[path].arrInfo)
+                .decodeRoot(into)
+            return {answer: into, extraColumnsConsulted: []};
+        }
+        return {needsFetch: true};
+    }
+
     constructor(path, values, arrInfo) {
         // Last argument is true for cursors that are only read from at the end of processing a value.
         // This results in better error printing, by putting the cursor on the element where the error applies.

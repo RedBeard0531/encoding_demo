@@ -8,6 +8,7 @@
 <!-- third-party libs -->
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"
     integrity="sha256-/xUj+3OJU5yExlq6GSYGSHk7tPXikynS7ogEvDej/m4=" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.17.20/lodash.min.js"></script>
 
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.23.0/themes/prism.min.css"
     integrity="sha512-tN7Ec6zAFaVSG3TpNAKtk4DOHNpSwKHxxrsiw4GHKESGPs5njn/0sMCUMl2svV4wo4BK/rCP7juYz+zx+l6oeQ=="
@@ -94,6 +95,10 @@
     input[type="text"] {
         width: 50em;
     }
+    .testResult {
+        font-family: monospace;
+        padding: 10px;
+    }
 </style>
 
 </head>
@@ -104,13 +109,14 @@
         <ul>
             <li id=showEncoder class=selected for=encoderForm>Encoder
             <li id=showDecoder for=decoderForm>Decoder
+            <li id=showTestCases for=testCasesForm>Test Cases
         </ul>
     </nav>
 
     <form id=encoderForm class=selected>
         <label for=object>Input a JSON object (JS shorthands like unquoted field names)</label>
         <br>
-        <textarea id=object cols=50  rows=10 spellcheck="false">
+        <textarea id=object cols=50 rows=10 spellcheck="false">
 {a: [{b: [{}, 0, {}, 1]},
      {c: 0},
      null,
@@ -129,7 +135,7 @@
     <form id=decoderForm>
         <label for=mergeObject>Input a JS object to merge into</label>
         <br>
-        <textarea id=mergeObject cols=50  rows=2 spellcheck="false">{}</textarea>
+        <textarea id=mergeObject cols=50 rows=2 spellcheck="false">{}</textarea>
         <br>
         <label for=path>Dotted path:</label><input type=text id=path value="a.b.c">
         <br>
@@ -138,6 +144,18 @@
         <label for=arrInfo>Array Info:</label><input type=text id=arrInfo value="{{[">
         <br>
         <input id=submitDecoder type=button value=Decode>
+    </form>
+
+    <form id=testCasesForm>
+        <label id=intro>Below are a list of interesting cases to stress the encoding scheme</label>
+        <br>
+        <label for=example1>Input doc: {a: 1}</label>
+        <br>
+        <label for=example1>Expected output of {$project: {a: 1}}: {a: 1}</label>
+        <br>
+        <label for=example1>Decoder's output: <span id=actualProjectExample1></span></label>
+        <br>
+        <input id=submitTestCases type=button value=Test>
     </form>
 
     <div>
@@ -357,6 +375,511 @@
             $('#output').show()
         }
 
+        function recomputeTestCases() {
+            let testCases = [
+                { 'input': {}, 'expectedProjectionOutput': {}, 'expectedFieldPathOutput': 'missing' },
+                {
+                    'input': { "a": null },
+                    'expectedProjectionOutput': {},
+                    'expectedFieldPathOutput': 'missing'
+                },
+                {
+                    'input': { "a": "scalar" },
+                    'expectedProjectionOutput': {},
+                    'expectedFieldPathOutput': 'missing'
+                },
+                {
+                    'input': { "a": {} },
+                    'expectedProjectionOutput': { "a": {} },
+                    'expectedFieldPathOutput': 'missing'
+                },
+                {
+                    'input': { "a": { "x": 1, "b": "scalar" } },
+                    'expectedProjectionOutput': { "a": {} },
+                    'expectedFieldPathOutput': 'missing'
+                },
+                {
+                    'input': { "a": { "b": {} } },
+                    'expectedProjectionOutput': { "a": { "b": {} } },
+                    'expectedFieldPathOutput': 'missing'
+                },
+                {
+                    'input': { "a": { "x": 1, "b": {} } },
+                    'expectedProjectionOutput': { "a": { "b": {} } },
+                    'expectedFieldPathOutput': 'missing'
+                },
+                {
+                    'input': { "a": { "x": 1, "b": { "x": 1 } } },
+                    'expectedProjectionOutput': { "a": { "b": {} } },
+                    'expectedFieldPathOutput': 'missing'
+                },
+                {
+                    'input': { "a": { "b": { "c": "scalar" } } },
+                    'expectedProjectionOutput': { "a": { "b": { "c": "scalar" } } },
+                    'expectedFieldPathOutput': '"scalar"'
+                },
+                {
+                    'input': { "a": { "b": { "c": null } } },
+                    'expectedProjectionOutput': { "a": { "b": { "c": null } } },
+                    'expectedFieldPathOutput': 'null'
+                },
+                {
+                    'input': { "a": { "b": { "c": [[1, 2], [{}], 2] } } },
+                    'expectedProjectionOutput': { "a": { "b": { "c": [[1, 2], [{}], 2] } } },
+                    'expectedFieldPathOutput': [[1, 2], [{}], 2]
+                },
+                {
+                    'input': { "a": { "x": 1, "b": { "x": 1, "c": ["scalar"] } } },
+                    'expectedProjectionOutput': { "a": { "b": { "c": ["scalar"] } } },
+                    'expectedFieldPathOutput': ["scalar"]
+                },
+                {
+                    'input': { "a": { "x": 1, "b": { "c": { "x": 1 } } } },
+                    'expectedProjectionOutput': { "a": { "b": { "c": { "x": 1 } } } },
+                    'expectedFieldPathOutput': '{  "x" : 1 }'
+                },
+                {
+                    'input': { "a": { "b": [] } },
+                    'expectedProjectionOutput': { "a": { "b": [] } },
+                    'expectedFieldPathOutput': []
+                },
+                {
+                    'input': { "a": { "b": [null] } },
+                    'expectedProjectionOutput': { "a": { "b": [] } },
+                    'expectedFieldPathOutput': []
+                },
+                {
+                    'input': { "a": { "b": ["scalar"] } },
+                    'expectedProjectionOutput': { "a": { "b": [] } },
+                    'expectedFieldPathOutput': []
+                },
+                {
+                    'input': { "a": { "b": [[]] } },
+                    'expectedProjectionOutput': { "a": { "b": [[]] } },
+                    'expectedFieldPathOutput': []
+                },
+                {
+                    'input': { "a": { "b": [1, {}, 2] } },
+                    'expectedProjectionOutput': { "a": { "b": [{}] } },
+                    'expectedFieldPathOutput': []
+                },
+                {
+                    'input': { "a": { "b": [[1, 2], [{}], 2] } },
+                    'expectedProjectionOutput': { "a": { "b": [[], [{}]] } },
+                    'expectedFieldPathOutput': []
+                },
+                {
+                    'input': { "a": { "x": 1, "b": [[1, 2], [{}], 2] } },
+                    'expectedProjectionOutput': { "a": { "b": [[], [{}]] } },
+                    'expectedFieldPathOutput': []
+                },
+                {
+                    'input': { "a": { "b": [{ "c": "scalar" }] } },
+                    'expectedProjectionOutput': { "a": { "b": [{ "c": "scalar" }] } },
+                    'expectedFieldPathOutput': ["scalar"]
+                },
+                {
+                    'input': { "a": { "b": [{ "c": "scalar" }, { c: "scalar2" }] } },
+                    'expectedProjectionOutput':
+                        { "a": { "b": [{ "c": "scalar" }, { "c": "scalar2" }] } },
+                    'expectedFieldPathOutput': ["scalar", "scalar2"]
+                },
+                {
+                    'input': { "a": { "b": [{ "c": [[1, 2], [{}], 2] }] } },
+                    'expectedProjectionOutput': { "a": { "b": [{ "c": [[1, 2], [{}], 2] }] } },
+                    'expectedFieldPathOutput': [[[1, 2], [{}], 2]]
+                },
+                {
+                    'input': { "a": { "b": [1, { "c": "scalar" }, 2] } },
+                    'expectedProjectionOutput': { "a": { "b": [{ "c": "scalar" }] } },
+                    'expectedFieldPathOutput': ["scalar"]
+                },
+                {
+                    'input': { "a": { "b": [1, { "c": [[1, 2], [{}], 2] }, 2] } },
+                    'expectedProjectionOutput': { "a": { "b": [{ "c": [[1, 2], [{}], 2] }] } },
+                    'expectedFieldPathOutput': [[[1, 2], [{}], 2]]
+                },
+                {
+                    'input': { "a": { "x": 1, "b": [1, { "c": [[1, 2], [{}], 2] }, 2] } },
+                    'expectedProjectionOutput': { "a": { "b": [{ "c": [[1, 2], [{}], 2] }] } },
+                    'expectedFieldPathOutput': [[[1, 2], [{}], 2]]
+                },
+                {
+                    'input': { "a": { "b": [[1, 2], [{ "c": "scalar" }], 2] } },
+                    'expectedProjectionOutput': { "a": { "b": [[], [{ "c": "scalar" }]] } },
+                    'expectedFieldPathOutput': []
+                },
+                {
+                    'input': { "a": { "b": [[1, 2], [{ "c": [[1, 2], [{}], 2] }], 2] } },
+                    'expectedProjectionOutput':
+                        { "a": { "b": [[], [{ "c": [[1, 2], [{}], 2] }]] } },
+                    'expectedFieldPathOutput': []
+                },
+                {
+                    'input':
+                        { "a": { "x": 1, "b": [[1, 2], [{ "c": [[1, 2], [{}], 2] }], 2] } },
+                    'expectedProjectionOutput':
+                        { "a": { "b": [[], [{ "c": [[1, 2], [{}], 2] }]] } },
+                    'expectedFieldPathOutput': []
+                },
+                {
+                    'input': { "a": [] },
+                    'expectedProjectionOutput': { "a": [] },
+                    'expectedFieldPathOutput': []
+                },
+                {
+                    'input': { "a": [null] },
+                    'expectedProjectionOutput': { "a": [] },
+                    'expectedFieldPathOutput': []
+                },
+                {
+                    'input': { "a": ["scalar"] },
+                    'expectedProjectionOutput': { "a": [] },
+                    'expectedFieldPathOutput': []
+                },
+                {
+                    'input': { "a": [[]] },
+                    'expectedProjectionOutput': { "a": [[]] },
+                    'expectedFieldPathOutput': []
+                },
+                {
+                    'input': { "a": [{}] },
+                    'expectedProjectionOutput': { "a": [{}] },
+                    'expectedFieldPathOutput': []
+                },
+                {
+                    'input': { "a": [1, {}, 2] },
+                    'expectedProjectionOutput': { "a": [{}] },
+                    'expectedFieldPathOutput': []
+                },
+                {
+                    'input': { "a": [[1, 2], [{}], 2] },
+                    'expectedProjectionOutput': { "a": [[], [{}]] },
+                    'expectedFieldPathOutput': []
+                },
+                {
+                    'input': { "a": [{ "b": "scalar" }] },
+                    'expectedProjectionOutput': { "a": [{}] },
+                    'expectedFieldPathOutput': []
+                },
+                {
+                    'input': { "a": [{ "b": null }] },
+                    'expectedProjectionOutput': { "a": [{}] },
+                    'expectedFieldPathOutput': []
+                },
+                {
+                    'input': { "a": [1, { "b": "scalar" }, 2] },
+                    'expectedProjectionOutput': { "a": [{}] },
+                    'expectedFieldPathOutput': []
+                },
+                {
+                    'input': { "a": [1, { "b": [] }, 2] },
+                    'expectedProjectionOutput': { "a": [{ "b": [] }] },
+                    'expectedFieldPathOutput': [[]]
+                },
+                {
+                    'input': { "a": [1, { "b": [null] }, 2] },
+                    'expectedProjectionOutput': { "a": [{ "b": [] }] },
+                    'expectedFieldPathOutput': [[]]
+                },
+                {
+                    'input': { "a": [1, { "b": ["scalar"] }, 2] },
+                    'expectedProjectionOutput': { "a": [{ "b": [] }] },
+                    'expectedFieldPathOutput': [[]]
+                },
+                {
+                    'input': { "a": [1, { "b": [[]] }, 2] },
+                    'expectedProjectionOutput': { "a": [{ "b": [[]] }] },
+                    'expectedFieldPathOutput': [[]]
+                },
+                {
+                    'input': { "a": [{ "b": [] }] },
+                    'expectedProjectionOutput': { "a": [{ "b": [] }] },
+                    'expectedFieldPathOutput': [[]]
+                },
+                {
+                    'input': { "a": [{ "b": ["scalar"] }] },
+                    'expectedProjectionOutput': { "a": [{ "b": [] }] },
+                    'expectedFieldPathOutput': [[]]
+                },
+                {
+                    'input': { "a": [{ "b": [[]] }] },
+                    'expectedProjectionOutput': { "a": [{ "b": [[]] }] },
+                    'expectedFieldPathOutput': [[]]
+                },
+                {
+                    'input': { "a": [{ "b": {} }] },
+                    'expectedProjectionOutput': { "a": [{ "b": {} }] },
+                    'expectedFieldPathOutput': []
+                },
+                {
+                    'input': { "a": [{ "b": { "c": "scalar" } }] },
+                    'expectedProjectionOutput': { "a": [{ "b": { "c": "scalar" } }] },
+                    'expectedFieldPathOutput': ["scalar"]
+                },
+                {
+                    'input': { "a": [{ "b": { "c": [[1, 2], [{}], 2] } }] },
+                    'expectedProjectionOutput': { "a": [{ "b": { "c": [[1, 2], [{}], 2] } }] },
+                    'expectedFieldPathOutput': [[[1, 2], [{}], 2]]
+                },
+                {
+                    'input': { "a": [{ "b": { "x": 1 } }] },
+                    'expectedProjectionOutput': { "a": [{ "b": {} }] },
+                    'expectedFieldPathOutput': []
+                },
+                {
+                    'input': { "a": [{ "b": { "x": 1, "c": "scalar" } }] },
+                    'expectedProjectionOutput': { "a": [{ "b": { "c": "scalar" } }] },
+                    'expectedFieldPathOutput': ["scalar"]
+                },
+                {
+                    'input': { "a": [{ "b": [{ "c": "scalar" }] }] },
+                    'expectedProjectionOutput': { "a": [{ "b": [{ "c": "scalar" }] }] },
+                    'expectedFieldPathOutput': [["scalar"]]
+                },
+                {
+                    'input': { "a": [{ "b": [{ "c": ["scalar"] }] }] },
+                    'expectedProjectionOutput': { "a": [{ "b": [{ "c": ["scalar"] }] }] },
+                    'expectedFieldPathOutput': [[["scalar"]]]
+                },
+                {
+                    'input': { "a": [{ "b": [1, { "c": ["scalar"] }, 2] }] },
+                    'expectedProjectionOutput': { "a": [{ "b": [{ "c": ["scalar"] }] }] },
+                    'expectedFieldPathOutput': [[["scalar"]]]
+                },
+                {
+                    'input': { "a": [{ "b": [{}] }] },
+                    'expectedProjectionOutput': { "a": [{ "b": [{}] }] },
+                    'expectedFieldPathOutput': [[]]
+                },
+                {
+                    'input': { "a": [{ "b": [[1, 2], [{}], 2] }] },
+                    'expectedProjectionOutput': { "a": [{ "b": [[], [{}]] }] },
+                    'expectedFieldPathOutput': [[]]
+                },
+                {
+                    'input': { "a": [{ "b": [[1, 2], [{ "c": "scalar" }], 2] }] },
+                    'expectedProjectionOutput': { "a": [{ "b": [[], [{ "c": "scalar" }]] }] },
+                    'expectedFieldPathOutput': [[]]
+                },
+                {
+                    'input': { "a": [{ "b": [[1, 2], [{ "c": ["scalar"] }], 2] }] },
+                    'expectedProjectionOutput': { "a": [{ "b": [[], [{ "c": ["scalar"] }]] }] },
+                    'expectedFieldPathOutput': [[]]
+                },
+                {
+                    'input': { "a": [1, { "b": {} }, 2] },
+                    'expectedProjectionOutput': { "a": [{ "b": {} }] },
+                    'expectedFieldPathOutput': []
+                },
+                {
+                    'input': { "a": [1, { "b": { "c": "scalar" } }, 2] },
+                    'expectedProjectionOutput': { "a": [{ "b": { "c": "scalar" } }] },
+                    'expectedFieldPathOutput': ["scalar"]
+                },
+                {
+                    'input': { "a": [1, { "b": { "c": { "x": 1 } } }, 2] },
+                    'expectedProjectionOutput': { "a": [{ "b": { "c": { "x": 1 } } }] },
+                    'expectedFieldPathOutput': [{ "x": 1 }]
+                },
+                {
+                    'input': { "a": [1, { "b": { "c": [1, {}, 2] } }, 2] },
+                    'expectedProjectionOutput': { "a": [{ "b": { "c": [1, {}, 2] } }] },
+                    'expectedFieldPathOutput': [[1, {}, 2]]
+                },
+                {
+                    'input': { "a": [1, { "b": { "x": 1 } }, 2] },
+                    'expectedProjectionOutput': { "a": [{ "b": {} }] },
+                    'expectedFieldPathOutput': []
+                },
+                {
+                    'input': { "a": [1, { "b": { "x": 1, "c": "scalar" } }, 2] },
+                    'expectedProjectionOutput': { "a": [{ "b": { "c": "scalar" } }] },
+                    'expectedFieldPathOutput': ["scalar"]
+                },
+                {
+                    'input': { "a": [1, { "b": { "x": 1, "c": [[]] } }, 2] },
+                    'expectedProjectionOutput': { "a": [{ "b": { "c": [[]] } }] },
+                    'expectedFieldPathOutput': [[[]]]
+                },
+                {
+                    'input': { "a": [1, { "b": { "x": 1, "c": [1, {}, 2] } }, 2] },
+                    'expectedProjectionOutput': { "a": [{ "b": { "c": [1, {}, 2] } }] },
+                    'expectedFieldPathOutput': [[1, {}, 2]]
+                },
+                {
+                    'input': { "a": [1, { "b": [{}] }, 2] },
+                    'expectedProjectionOutput': { "a": [{ "b": [{}] }] },
+                    'expectedFieldPathOutput': [[]]
+                },
+                {
+                    'input': { "a": [1, { "b": [{ "c": "scalar" }] }, 2] },
+                    'expectedProjectionOutput': { "a": [{ "b": [{ "c": "scalar" }] }] },
+                    'expectedFieldPathOutput': [["scalar"]]
+                },
+                {
+                    'input': { "a": [1, { "b": [{ "c": { "x": 1 } }] }, 2] },
+                    'expectedProjectionOutput': { "a": [{ "b": [{ "c": { "x": 1 } }] }] },
+                    'expectedFieldPathOutput': [[{ "x": 1 }]]
+                },
+                {
+                    'input': { "a": [1, { "b": [{ "c": [1, {}, 2] }] }, 2] },
+                    'expectedProjectionOutput': { "a": [{ "b": [{ "c": [1, {}, 2] }] }] },
+                    'expectedFieldPathOutput': [[[1, {}, 2]]]
+                },
+                {
+                    'input': { "a": [1, { "b": [1, {}, 2] }, 2] },
+                    'expectedProjectionOutput': { "a": [{ "b": [{}] }] },
+                    'expectedFieldPathOutput': [[]]
+                },
+                {
+                    'input': { "a": [1, { "b": [1, { "c": null }, 2] }, 2] },
+                    'expectedProjectionOutput': { "a": [{ "b": [{ "c": null }] }] },
+                    'expectedFieldPathOutput': [[null]]
+                },
+                {
+                    'input': { "a": [1, { "b": [1, { "c": "scalar" }, 2] }, 2] },
+                    'expectedProjectionOutput': { "a": [{ "b": [{ "c": "scalar" }] }] },
+                    'expectedFieldPathOutput': [["scalar"]]
+                },
+                {
+                    'input': { "a": [1, { "b": [1, { "c": [1, {}, 2] }, 2] }, 2] },
+                    'expectedProjectionOutput': { "a": [{ "b": [{ "c": [1, {}, 2] }] }] },
+                    'expectedFieldPathOutput': [[[1, {}, 2]]]
+                },
+                {
+                    'input': { "a": [1, { "b": [[1, 2], [{}], 2] }, 2] },
+                    'expectedProjectionOutput': { "a": [{ "b": [[], [{}]] }] },
+                    'expectedFieldPathOutput': [[]]
+                },
+                {
+                    'input': { "a": [1, { "b": [[1, 2], [{ "c": "scalar" }], 2] }, 2] },
+                    'expectedProjectionOutput': { "a": [{ "b": [[], [{ "c": "scalar" }]] }] },
+                    'expectedFieldPathOutput': [[]]
+                },
+                {
+                    'input': { "a": [1, { "b": [[1, 2], [{ "c": [1, {}, 2] }], 2] }, 2] },
+                    'expectedProjectionOutput':
+                        { "a": [{ "b": [[], [{ "c": [1, {}, 2] }]] }] },
+                    'expectedFieldPathOutput': [[]]
+                },
+                {
+                    'input': { "a": [[1, 2], [{ "b": "scalar" }], 2] },
+                    'expectedProjectionOutput': { "a": [[], [{}]] },
+                    'expectedFieldPathOutput': []
+                },
+                {
+                    'input': { "a": [[1, 2], [{ "b": { "x": 1, "c": "scalar" } }], 2] },
+                    'expectedProjectionOutput': { "a": [[], [{ "b": { "c": "scalar" } }]] },
+                    'expectedFieldPathOutput': []
+                },
+                {
+                    'input': { "a": [[1, 2], [{ "b": { "x": 1, "c": [1, {}, 2] } }], 2] },
+                    'expectedProjectionOutput': { "a": [[], [{ "b": { "c": [1, {}, 2] } }]] },
+                    'expectedFieldPathOutput': []
+                },
+                {
+                    'input': { "a": [[1, 2], [{ "b": [] }], 2] },
+                    'expectedProjectionOutput': { "a": [[], [{ "b": [] }]] },
+                    'expectedFieldPathOutput': []
+                },
+                {
+                    'input': { "a": [[1, 2], [{ "b": [1, { "c": "scalar" }, 2] }], 2] },
+                    'expectedProjectionOutput': { "a": [[], [{ "b": [{ "c": "scalar" }] }]] },
+                    'expectedFieldPathOutput': []
+                },
+                {
+                    'input':
+                        { "a": [[1, 2], [{ "b": [[1, 2], [{ "c": "scalar" }], 2] }], 2] },
+                    'expectedProjectionOutput':
+                        { "a": [[], [{ "b": [[], [{ "c": "scalar" }]] }]] },
+                    'expectedFieldPathOutput': []
+                },
+                {
+                    'input':
+                        { "a": [[1, 2], [{ "b": [[1, 2], [{ "c": [[1, 2], [{}], 2] }], 2] }], 2] },
+                    'expectedProjectionOutput':
+                        { "a": [[], [{ "b": [[], [{ "c": [[1, 2], [{}], 2] }]] }]] },
+                    'expectedFieldPathOutput': []
+                }
+            ];
+            let mkSpan = (text, attrs = {}) => {
+                let out = $('<span>').text(text)
+                for (let [k, v] of Object.entries(attrs)) {
+                    out.attr(k, v)
+                }
+                return out
+            }
+            const output = document.getElementById('output')
+            output.innerHTML = '';
+            let table = $('<table>');
+            table.appendTo(output);
+            table.append("<thead><tr><td>Input</td><td>Correct Answer?/</td><td>Needed Extra Info?</td><td></td></tr></thead>");
+            let tbody = $('<tbody>');
+            table.append(tbody);
+            let addNeededFetchRow = (testCase) => {
+                let newRow = $('<tr class=testResult>');
+                newRow.append(`<td>${JSON.stringify(testCase.input)}</td>`);
+                newRow.append(`<td>✅</td>`);  // If we went to the row store we assume we'll get the right answer.
+                newRow.append(`<td>🆘 row store fetch required</td>`);
+                let btn = $('<input type=button class="showResultBtn" value="Detail">');
+                btn.data("input", testCase.input);
+                btn.data("expected", testCase.expectedProjectionOutput);
+                newRow.append(btn);
+                btn.wrap("<td></td>");
+                tbody.append(newRow);
+            };
+            let addTestResultRow = (testCase, success, extraColumns, actualOutput) => {
+                let newRow = $('<tr class=testResult>');
+                newRow.append(`<td>${JSON.stringify(testCase.input)}</td>`);
+                newRow.append(`<td>${success ? "✅" : "❌"}</td>`);
+                newRow.append(`<td></td>`);
+                let btn = $('<input type=button class="showResultBtn" value="Detail">');
+                btn.data("input", testCase.input);
+                btn.data("output", actualOutput);
+                btn.data("expected", testCase.expectedProjectionOutput);
+                newRow.append(btn);
+                btn.wrap("<td></td>");
+                tbody.append(newRow);
+            };
+            for (let testCase of testCases) {
+                const encoded = ArrInfoEncoder.encode(testCase.input);
+                try {
+                    const decoded = ArrInfoDecoder.answerProjection("a.b.c", encoded);
+                    if (decoded.needsFetch) {
+                        addNeededFetchRow(testCase);
+                    } else {
+                        addTestResultRow(testCase, _.isEqual(decoded.answer, testCase.expectedProjectionOutput), [],decoded.answer);
+                    }
+
+                } catch (err) {
+                    mkSpan("Error decoding!").appendTo(output);
+                    console.log(err);
+                }
+                mkSpan("\n").appendTo(output);
+            }
+            $('.showResultBtn').click(function() {
+                // Add a new row after this one.
+                let parentRow = $(this).parent().parent();
+                let newRow = $("<tr class=detail>");
+                let newCell = $("<td colspan=4>");
+                    newCell.appendTo(newRow);
+                if ($(this).data("output")) {
+                    let detailOutput = makeJsonNode($(this).data("output"));
+                    mkSpan("Output").appendTo(newCell);
+                    detailOutput.appendTo(newCell);
+                }
+                let detailExpected = makeJsonNode($(this).data("expected"));
+                mkSpan("Expected").appendTo(newCell);
+                detailExpected.appendTo(newCell);
+                parentRow.after(newRow);
+                $(this).hide();
+            });
+            $("#encoderForm").hide();
+            $('#error').hide()
+            $('#output').show()
+        }
+
         $('nav li').click((ev) => {
             $('nav li').removeClass('selected')
             $('form').removeClass('selected')
@@ -370,8 +893,10 @@
 
         $('#submitDecoder').click(recomputeDecoder)
         $('#submitEncoder').click(recomputeEncoder)
+        $('#submitTestCases').click(recomputeTestCases)
         $('input:radio').change(recomputeEncoder)
-        recomputeEncoder()
+        recomputeTestCases()
     </script>
 </body>
+
 </html>
