@@ -264,10 +264,17 @@
                 const pathSpan = mkSpan(`Path: ${path}`).appendTo(output)
                 mkSpan('\n').appendTo(output)
 
-                if (info.hasSubObjects) {
+                if (info.hasNonEmptySubObjects) {
                     let marker = '  Marker: HAS_SUB_OBJECTS'
                     if (info.values.length == 0)
                         marker += ' (implicit with empty cell value)'
+                    mkSpan(marker + '\n').appendTo(output)
+                }
+                assert(() => 'isSparse' in info)
+                if (info.isSparse) {
+                    let marker = '  Marker: IS_SPARSE'
+                    if (info.hasNonEmptySubObjects)
+                        marker += ' (not encoded with HAS_SUB_OBJECTS)'
                     mkSpan(marker + '\n').appendTo(output)
                 }
 
@@ -302,8 +309,10 @@
 
                 if (info.values.length > 0) {
                     mkSpan('  Decoded:\n').appendTo(output)
-                    if (info.hasSubObjects)
+                    if (info.hasNonEmptySubObjects)
                         mkSpan('    Warning: this path has subobjects so decoded output is incomplete\n').appendTo(output)
+                    if (info.isSparse)
+                        mkSpan('    Warning: this path is sparse so decoded output is incomplete\n').appendTo(output)
 
                     let button = $('<button>').text("Seed decoder with info from this path")
                     button.click(() => {

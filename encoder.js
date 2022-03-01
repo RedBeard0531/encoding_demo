@@ -13,18 +13,20 @@ class ArrInfoEncoder {
 
     walkObj(path, arrInfoPrefix, obj, isRoot = false) {
         if (isRoot) {
-            this.infoFor('\xff').hasSubObjects = true
+            this.infoFor('\xff').hasNonEmptySubObjects = true
             assert(() => path == '', this)
             var pathPrefix = ''
             var arrInfo = arrInfoPrefix
         } else {
-            this.infoFor(path).hasSubObjects = true
+            this.infoFor(path).hasNonEmptySubObjects = true
             var pathPrefix = path + '.'
             var arrInfo = arrInfoPrefix.concat(['{'])
         }
 
         for (let field in obj) {
-            this.handleElem(pathPrefix + field, arrInfo, obj[field])
+            const subpath = pathPrefix + field
+            this.infoFor(subpath).nSeen += 1
+            this.handleElem(subpath, arrInfo, obj[field])
         }
     }
 
@@ -38,17 +40,19 @@ class ArrInfoEncoder {
     }
 
     handleElem(path, arrInfoPrefix, elem) {
+        let info = this.infoFor(path)
+
         if (Array.isArray(elem)) {
             if (elem.length != 0)
                 return this.walkArr(path, arrInfoPrefix, elem)
             // empty array treated as leaf scalar
         } else if ($.isPlainObject(elem)) {
+            info.nSubObjects += 1
             if (!$.isEmptyObject(elem))
                 return this.walkObj(path, arrInfoPrefix, elem)
             // empty object treated as leaf scalar
         }
 
-        let info = this.infoFor(path)
         info.values.push(elem)
         info.rawArrInfos.push(arrInfoPrefix.concat(['|']))
     }
@@ -59,10 +63,13 @@ class ArrInfoEncoder {
             return this.infos[path]
 
         return (this.infos[path] = {
-            hasSubObjects: false,
+            nSeen: 0,
+            nSubObjects: 0,
+            hasNonEmptySubObjects: false,
             values: [],
             rawArrInfos: [],
             arrInfo: [],
+            // isSparse: bool, // Added in checkSparse(). Absence means not computed yet.
         })
     }
 
@@ -72,9 +79,39 @@ class ArrInfoEncoder {
         return num.toString()
     }
 
+    static parentPath(path) {
+        let dot = path.lastIndexOf('.')
+        return dot == -1 ? null : path.substring(0, dot)
+    }
+
+    checkSparse(path, info) {
+        if ('isSparse' in info)
+            return // already computed
+
+        let parent = ArrInfoEncoder.parentPath(path)
+        if (!parent) {
+            // top level fields are automatically dense
+            info.isSparse = false
+            return
+        }
+
+        let parentInfo = this.infoFor(parent)
+        this.checkSparse(parent, parentInfo) // ensure parent's sparseness is computed before ours
+        if (parentInfo.isSparse) {
+            // If parent is sparse, we automatically are.
+            info.isSparse = true
+            return
+        }
+
+        info.isSparse = info.nSeen != parentInfo.nSubObjects
+    }
+
     // This is called to encode the output after the object has been completely walked.
     encode() {
-        for (let info of Object.values(this.infos)) {
+        for (let [path, info] of Object.entries(this.infos)) {
+            this.checkSparse(path, info)
+            assert(() => 'isSparse' in info)
+
             assert(() => info.values.length == info.rawArrInfos.length)
             if (info.values.length == 0)
                 continue // This can happen if we only see this path to mark existence of subobjects
