@@ -227,19 +227,25 @@ class ArrInfoDecoder {
             }
 
             let into = {};
-            new ArrInfoDecoder(path, encodingInfo[path].values, encodingInfo[path].arrInfo)
+            new ArrInfoDecoder(path,
+                               encodingInfo[path].values,
+                               encodingInfo[path].arrInfo,
+                               true /* drop unknowns */
+                              )
                 .decodeRoot(into)
             return {answer: into, extraColumnsConsulted: []};
         }
         return {needsFetch: true};
     }
 
-    constructor(path, values, arrInfo) {
+    constructor(path, values, arrInfo, dropUnknowns=false) {
         // Last argument is true for cursors that are only read from at the end of processing a value.
         // This results in better error printing, by putting the cursor on the element where the error applies.
         this.path = new ArrayCursor('path', path.split('.'), false)
         this.values = new ArrayCursor('values', values, true) // Always read after doing all checks
         this.arrInfo = new StringCursor('arrInfo', arrInfo, false)
+
+        this.dropUnknowns = dropUnknowns;
 
         // thes are only used for error reporting
         this.into = {}
@@ -321,7 +327,8 @@ class ArrInfoDecoder {
         let inserted = false
         const outputPosIx = this.outputPos.length
         this.outputPos.push(index)
-        while (!this.done()) {
+        let localDone = false;
+        while (!this.done() && !localDone) {
             assert(() => this.outputPos.length == outputPosIx + 1, this)
             this.outputPos[outputPosIx] = index
 
@@ -364,8 +371,8 @@ class ArrInfoDecoder {
                 case ']':
                     this.uassert("closing array without inserting anything",
                                  inserted)
-                    this.outputPos.pop()
-                    return
+                    localDone = true;
+                    break;
                 default:
                     this.uassert(`unexpected action '${action}' while decoding an array, expected one of []+{|`,
                                  false)
@@ -373,6 +380,26 @@ class ArrInfoDecoder {
         }
 
         this.outputPos.pop()
+
+        const kUnknownStr = '<unknown>';
+        // Replace all 'undefined' values with a magic string which indicates an unknown scalar.
+        // Otherwise 'undefined' will get serialized to null.
+        console.log(into);
+        for (let [ix, el] of into.entries()) {
+            if (el == undefined) {
+                into[ix] = kUnknownStr;
+            }
+        }
+
+        if (this.dropUnknowns) {
+            let i = 0;
+            for (let [ix, el] of into.entries()) {
+                if (el != kUnknownStr) {
+                    into[i++] = into[ix];
+                }
+            }
+            into.length = i;
+        }
     }
 
     done() {
