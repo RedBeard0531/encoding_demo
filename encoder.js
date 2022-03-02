@@ -26,25 +26,31 @@ class ArrInfoEncoder {
         for (let field in obj) {
             const subpath = pathPrefix + field
             this.infoFor(subpath).nSeen += 1
-            this.handleElem(subpath, arrInfo, obj[field])
+            this.handleElem(subpath, arrInfo, 0 /* direct array depth */, obj[field])
         }
     }
 
-    walkArr(path, arrInfoPrefix, arr) {
+    walkArr(path, arrInfoPrefix, arrayDepth, arr) {
+        // We compare with exactly 2 here since we only care about
+        // arrays directly nested in another array. For [[[]], [], []], for example,
+        // we would report three directly nested arrays (not four).
+        if (arrayDepth == 2) {
+            this.infoFor(path).nDirectlyNestedNonEmptyArrays += 1;
+        }
         let arrInfo = arrInfoPrefix.concat(['[', 0])
         const arrInfoIx = arrInfo.length - 1
         for (let i = 0; i < arr.length; i++) {
             arrInfo[arrInfoIx] = i
-            this.handleElem(path, arrInfo, arr[i])
+            this.handleElem(path, arrInfo, arrayDepth, arr[i])
         }
     }
 
-    handleElem(path, arrInfoPrefix, elem) {
+    handleElem(path, arrInfoPrefix, arrayDepth, elem) {
         let info = this.infoFor(path)
 
         if (Array.isArray(elem)) {
             if (elem.length != 0)
-                return this.walkArr(path, arrInfoPrefix, elem)
+                return this.walkArr(path, arrInfoPrefix, arrayDepth + 1, elem)
             // empty array treated as leaf scalar
         } else if ($.isPlainObject(elem)) {
             info.nSubObjects += 1
@@ -65,11 +71,14 @@ class ArrInfoEncoder {
         return (this.infos[path] = {
             nSeen: 0,
             nSubObjects: 0,
+            nDirectlyNestedNonEmptyArrays: 0,
             hasNonEmptySubObjects: false,
             values: [],
             rawArrInfos: [],
             arrInfo: [],
             // isSparse: bool, // Added in checkSparse(). Absence means not computed yet.
+
+            path: path // For debugging.
         })
     }
 
@@ -103,7 +112,8 @@ class ArrInfoEncoder {
             return
         }
 
-        info.isSparse = info.nSeen != parentInfo.nSubObjects
+        info.isSparse = info.nSeen != parentInfo.nSubObjects ||
+            parentInfo.nDirectlyNestedNonEmptyArrays > 0;
     }
 
     // This is called to encode the output after the object has been completely walked.
@@ -113,8 +123,10 @@ class ArrInfoEncoder {
             assert(() => 'isSparse' in info)
 
             assert(() => info.values.length == info.rawArrInfos.length)
-            if (info.values.length == 0)
+            if (info.values.length == 0) {
+                info.arrInfo = '';
                 continue // This can happen if we only see this path to mark existence of subobjects
+            }
 
             // start with a copy of the first arrInfo, then encode the deltas to each after it
             let arrInfo = Array.from(info.rawArrInfos[0])
@@ -210,6 +222,10 @@ class ArrInfoDecoder {
      */
     static answerProjection(path, encodingInfo) {
         if (path in encodingInfo) {
+            if (encodingInfo[path].isSparse) {
+                return {needsFetch: true};
+            }
+
             let into = {};
             new ArrInfoDecoder(path, encodingInfo[path].values, encodingInfo[path].arrInfo)
                 .decodeRoot(into)
