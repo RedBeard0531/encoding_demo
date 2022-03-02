@@ -72,8 +72,10 @@
         padding-left:0.1em;
         padding-right:0.1em;
     }
-    #error {
+    .error {
         color: red;
+    }
+    #error {
         font-family: monospace;
     }
     .arrInfo {
@@ -223,7 +225,7 @@
             </div>
         </details>
         <h2>Output:</h2>
-        <pre id=error></pre>
+        <pre id=error class=error></pre>
         <pre id=output></pre>
     </div>
 
@@ -254,30 +256,17 @@
             Prism.highlightAllUnder(out[0])
             return out
         }
-        function recomputeEncoder() {
-            var value = tryShowErrors('parsing input object', () => parseObject(valueFor('object')))
 
-            const infos = ArrInfoEncoder.encode(value);
+        function mkSpan(text, attrs = {}) {
+            let out = $('<span>').text(text)
+            for (let [k, v] of Object.entries(attrs)) {
+                out.attr(k, v)
+            }
+            return out
+        }
 
-            let mkSpan = (text, attrs={}) => {
-                let out = $('<span>').text(text)
-                for (let [k, v] of Object.entries(attrs)) {
-                    out.attr(k, v)
-                }
-                return out
-            }
-            let mkMultiSpan = (...parts) => {
-                let span = $('<span>')
-                for (let part of parts) {
-                    if (typeof part == 'string')
-                        part = new Text(part)
-                    span.append(part)
-                }
-                return span
-            }
-            const output = document.getElementById('output')
-            output.innerHTML = ''
-            for (let [path, info] of Object.entries(infos).sort()) {
+        function addEncoderOutput(encoded, output, withDecoded = true) {
+            for (let [path, info] of Object.entries(encoded).sort()) {
                 if (path == '\xff')
                     path = '\\xFF (row id pseudo-column)'
                 const pathSpan = mkSpan(`Path: ${path}`).appendTo(output)
@@ -326,7 +315,7 @@
                     mkSpan(line +'\n').appendTo(output)
                 }
 
-                if (info.values.length > 0) {
+                if (withDecoded && info.values.length > 0) {
                     mkSpan('  Decoded:\n').appendTo(output)
                     if (info.hasNonEmptySubObjects)
                         mkSpan('    Warning: this path has subobjects so decoded output is incomplete\n').appendTo(output)
@@ -350,6 +339,24 @@
                     makeJsonNode(decoded).appendTo($('<pre class=indent>').appendTo(output))
                 }
             }
+        }
+        function recomputeEncoder() {
+            var value = tryShowErrors('parsing input object', () => parseObject(valueFor('object')))
+
+            const infos = ArrInfoEncoder.encode(value);
+
+            let mkMultiSpan = (...parts) => {
+                let span = $('<span>')
+                for (let part of parts) {
+                    if (typeof part == 'string')
+                        part = new Text(part)
+                    span.append(part)
+                }
+                return span
+            }
+            const output = document.getElementById('output')
+            output.innerHTML = ''
+            addEncoderOutput(infos, output);
 
             $('#error').hide()
             $('#output').show()
@@ -377,78 +384,64 @@
         }
 
         function recomputeTestCases() {
-            let mkSpan = (text, attrs = {}) => {
-                let out = $('<span>').text(text)
-                for (let [k, v] of Object.entries(attrs)) {
-                    out.attr(k, v)
-                }
-                return out
-            }
             const output = document.getElementById('output')
             output.innerHTML = '';
             let table = $('<table>');
             table.appendTo(output);
-            table.append("<thead><tr><td>Input</td><td>Correct Answer?/</td><td>Needed Extra Info?</td><td></td></tr></thead>");
+            table.append("<thead><tr><td>Input</td><td>Correct Answer?</td><td>Needed Extra Info?</td><td></td></tr></thead>");
             let tbody = $('<tbody>');
             table.append(tbody);
-            let addNeededFetchRow = (testCase) => {
-                let newRow = $('<tr class=testResult>');
-                newRow.append(`<td>${JSON.stringify(testCase.input)}</td>`);
-                newRow.append(`<td>✅</td>`);  // If we went to the row store we assume we'll get the right answer.
-                newRow.append(`<td>🆘 row store fetch required</td>`);
-                let btn = $('<input type=button class="showResultBtn" value="Detail">');
-                btn.data("input", testCase.input);
-                btn.data("expected", testCase.expectedProjectionOutput);
-                newRow.append(btn);
-                btn.wrap("<td></td>");
-                tbody.append(newRow);
-            };
-            let addTestResultRow = (testCase, success, extraColumns, actualOutput) => {
-                let newRow = $('<tr class=testResult>');
-                newRow.append(`<td>${JSON.stringify(testCase.input)}</td>`);
-                newRow.append(`<td>${success ? "✅" : "❌"}</td>`);
-                newRow.append(`<td></td>`);
-                let btn = $('<input type=button class="showResultBtn" value="Detail">');
-                btn.data("input", testCase.input);
-                btn.data("output", actualOutput);
-                btn.data("expected", testCase.expectedProjectionOutput);
-                newRow.append(btn);
-                btn.wrap("<td></td>");
-                tbody.append(newRow);
-            };
             for (let testCase of testCases) {
                 const encoded = ArrInfoEncoder.encode(testCase.input);
-                try {
-                    const decoded = ArrInfoDecoder.answerProjection("a.b.c", encoded);
-                    if (decoded.needsFetch) {
-                        addNeededFetchRow(testCase);
-                    } else {
-                        addTestResultRow(testCase, _.isEqual(decoded.answer, testCase.expectedProjectionOutput), [],decoded.answer);
-                    }
 
-                } catch (err) {
-                    mkSpan("Error decoding!").appendTo(output);
+                let decoded = {}
+                let success = false
+                let err = null
+                let output = null
+                try {
+                    decoded = ArrInfoDecoder.answerProjection("a.b.c", encoded)
+                    if (decoded.needsFetch) {
+                        success = true // If we went to the row store we assume we'll get the right answer.
+                    } else {
+                        output = decoded.answer;
+                        success = _.isEqual(decoded.answer, testCase.expectedProjectionOutput)
+                    }
+                } catch (e) {
+                    err = e
                     console.log(err);
                 }
-                mkSpan("\n").appendTo(output);
-            }
-            $('.showResultBtn').click(function() {
-                // Add a new row after this one.
-                let parentRow = $(this).parent().parent();
-                let newRow = $("<tr class=detail>");
-                let newCell = $("<td colspan=4>");
-                    newCell.appendTo(newRow);
-                if ($(this).data("output")) {
-                    let detailOutput = makeJsonNode($(this).data("output"));
-                    mkSpan("Output").appendTo(newCell);
-                    detailOutput.appendTo(newCell);
+
+                let newRow = $('<tr class=testResult>')
+                newRow.append($('<td>').text(JSON.stringify(testCase.input)))
+                newRow.append($('<td>').text(err ? "🔥" : success ? "✅" : "❌"));
+                if (decoded.needsFetch) {
+                    newRow.append(`<td>🆘 row store fetch required</td>`);
+                } else {
+                    newRow.append(`<td></td>`);
                 }
-                let detailExpected = makeJsonNode($(this).data("expected"));
-                mkSpan("Expected").appendTo(newCell);
-                detailExpected.appendTo(newCell);
-                parentRow.after(newRow);
-                $(this).hide();
-            });
+                let btn = $('<input type=button class="showResultBtn" value="Detail">');
+                newRow.append(btn.wrap("<td>"));
+                tbody.append(newRow);
+
+                let detailRow = $('<tr class=detail>').hide()
+                let detail = $("<td colspan=4>");
+                detail.appendTo(detailRow);
+                if (err) {
+                    detail.append(mkSpan(err.toString(), {class: 'error'}))
+                } else {
+                    if (output) {
+                        mkSpan("Output").appendTo(detail);
+                        makeJsonNode(output).appendTo(detail);
+                    }
+                    mkSpan("Expected").appendTo(detail);
+                    makeJsonNode(testCase.expectedProjectionOutput).appendTo(detail);
+                }
+                detail.append($('<hr>'))
+                addEncoderOutput(encoded, detail, /*withDecoded=*/ false)
+                tbody.append(detailRow);
+
+                btn.click(() => detailRow.toggle())
+            }
             $("#encoderForm").hide();
             $('#error').hide()
             $('#output').show()
