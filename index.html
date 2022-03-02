@@ -391,6 +391,9 @@
             table.append("<thead><tr><td>Input</td><td>Correct Answer?</td><td>Needed Extra Info?</td><td></td></tr></thead>");
             let tbody = $('<tbody>');
             table.append(tbody);
+
+            let fetchReasonCounts = {}
+            let addFetch = (reason) => { fetchReasonCounts[reason] = (fetchReasonCounts[reason] || 0) + 1 }
             for (let testCase of testCases) {
                 const encoded = ArrInfoEncoder.encode(testCase.input);
 
@@ -401,6 +404,7 @@
                 try {
                     decoded = ArrInfoDecoder.answerProjection("a.b.c", encoded)
                     if (decoded.needsFetch) {
+                        addFetch(decoded.needsFetch)
                         success = true // If we went to the row store we assume we'll get the right answer.
                     } else {
                         output = decoded.answer;
@@ -415,7 +419,7 @@
                 newRow.append($('<td>').text(JSON.stringify(testCase.input)))
                 newRow.append($('<td>').text(err ? "🔥" : success ? "✅" : "❌"));
                 if (decoded.needsFetch) {
-                    newRow.append(`<td>🆘 row store fetch required</td>`);
+                    newRow.append(`<td>🆘 ${decoded.needsFetch}</td>`);
                 } else {
                     newRow.append(`<td></td>`);
                 }
@@ -427,7 +431,7 @@
                 let detail = $("<td colspan=4>");
                 detail.appendTo(detailRow);
                 if (err) {
-                    detail.append(mkSpan(err.toString(), {class: 'error'}))
+                    detail.append(mkSpan(err.toString(), {class: "error"}))
                 } else {
                     if (output) {
                         mkSpan("Output").appendTo(detail);
@@ -442,6 +446,12 @@
 
                 btn.click(() => detailRow.toggle())
             }
+
+            output.append("\nFetch Reasons:\n")
+            for (let [reason, count] of Object.entries(fetchReasonCounts)) {
+                output.append(`    ${reason}: ${count}\n`)
+            }
+
             $("#encoderForm").hide();
             $('#error').hide()
             $('#output').show()

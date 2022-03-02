@@ -217,14 +217,17 @@ class ArrInfoDecoder {
      *     object that would result by executing the pipeline [{$project: {<path>: 1}}].
      * @param {Object} encodingInfo The entire encoding object. Ideally you can reconstruct the
      *     answer from just `encodingInfo[path]`, but you
-     * @returns {answer: {Object}, extraColumnsConsulted: [{String}], needsFetch: {bool}}
+     * @returns {answer: {Object}, extraColumnsConsulted: [{String}], needsFetch: {string | undefined}}
      * If you cannot compute the answer with the encoding scheme, just return {needsFetch: true}.
      */
     static answerProjection(path, encodingInfo) {
         if (path in encodingInfo) {
             let info = encodingInfo[path]
-            if (info.isSparse || info.hasNonEmptySubObjects) {
-                return {needsFetch: true};
+            if (info.hasNonEmptySubObjects) {
+                return {needsFetch: 'subobject marker'};
+            }
+            if (info.isSparse) {
+                return {needsFetch: 'sparse data marker'};
             }
 
             let into = {};
@@ -236,7 +239,7 @@ class ArrInfoDecoder {
                 .decodeRoot(into)
             return {answer: into, extraColumnsConsulted: []};
         }
-        return {needsFetch: true};
+        return {needsFetch: 'no data for path'};
     }
 
     constructor(path, values, arrInfo, dropUnknowns=false) {
