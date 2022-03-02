@@ -222,14 +222,15 @@ class ArrInfoDecoder {
      */
     static answerProjection(path, encodingInfo) {
         if (path in encodingInfo) {
-            if (encodingInfo[path].isSparse) {
+            let info = encodingInfo[path]
+            if (info.isSparse || info.hasNonEmptySubObjects) {
                 return {needsFetch: true};
             }
 
             let into = {};
             new ArrInfoDecoder(path,
-                               encodingInfo[path].values,
-                               encodingInfo[path].arrInfo,
+                               info.values,
+                               info.arrInfo,
                                true /* drop unknowns */
                               )
                 .decodeRoot(into)
