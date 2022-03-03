@@ -22,6 +22,7 @@
 
 <!-- first-party -->
 <script src="./encoder.js"></script>
+<script src="./encoder2.js"></script>
 <script src="./testcases.js"></script>
 <style>
     nav ul {
@@ -120,17 +121,8 @@
         <label for=object>Input a JSON object (JS shorthands like unquoted field names)</label>
         <br>
         <textarea id=object cols=50 rows=10 spellcheck="false">
-{a: [{b: [{}, 0, {}, 1]},
-     {c: 0},
-     null,
-     {b: [[2]], c: 1},
-     {b: [3, 4, 5, 6]},
-     {d: 0},
-     {d: 1},
-     {d: 2},
-     {d: 3}
-    ]
-}</textarea>
+            {"a":{"b":[{"c":"scalar"},{"c":"scalar2"}]}}
+        </textarea>
         <br>
         <input id=submitEncoder type=button value=Encode>
     </form>
@@ -278,7 +270,6 @@
                         marker += ' (implicit with empty cell value)'
                     mkSpan(marker + '\n').appendTo(output)
                 }
-                assert(() => 'isSparse' in info)
                 if (info.isSparse) {
                     let marker = '  Marker: IS_SPARSE'
                     if (info.hasNonEmptySubObjects)
@@ -334,7 +325,7 @@
                     });
                     button.appendTo(pathSpan)
 
-                    const decoded = ArrInfoDecoder.decode(path, info.values, info.arrInfo)
+                    const decoded = FullArrInfoDecoder.decode(path, info.values, info.arrInfo)
                     console.log(decoded)
                     makeJsonNode(decoded).appendTo($('<pre class=indent>').appendTo(output))
                 }
@@ -343,7 +334,7 @@
         function recomputeEncoder() {
             var value = tryShowErrors('parsing input object', () => parseObject(valueFor('object')))
 
-            const infos = ArrInfoEncoder.encode(value);
+            const infos = FullArrInfoEncoder.encode(value);
 
             let mkMultiSpan = (...parts) => {
                 let span = $('<span>')
@@ -373,7 +364,7 @@
             })
 
             const decoded = tryShowErrors('decoding array info',
-                () => ArrInfoDecoder.decode(path, values, arrInfo, mergeObject))
+                () => FullArrInfoDecoder.decode(path, values, arrInfo, mergeObject))
 
             const output = document.getElementById('output')
             output.innerHTML = ''
@@ -392,14 +383,14 @@
             let tbody = $('<tbody>');
             table.append(tbody);
             for (let testCase of testCases) {
-                const encoded = ArrInfoEncoder.encode(testCase.input);
+                const encoded = FullArrInfoEncoder.encode(testCase.input);
 
                 let decoded = {}
                 let success = false
                 let err = null
                 let output = null
                 try {
-                    decoded = ArrInfoDecoder.answerProjection("a.b.c", encoded)
+                    decoded = FullArrInfoDecoder.answerProjection("a.b.c", encoded)
                     if (decoded.needsFetch) {
                         success = true // If we went to the row store we assume we'll get the right answer.
                     } else {
