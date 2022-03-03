@@ -2,108 +2,124 @@
 <html lang=en>
 
 <head>
-<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
-<title>Column Encoding Demo</title>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    <title>Column Encoding Demo</title>
 
-<!-- third-party libs -->
-<script src="https://code.jquery.com/jquery-3.6.0.min.js"
-    integrity="sha256-/xUj+3OJU5yExlq6GSYGSHk7tPXikynS7ogEvDej/m4=" crossorigin="anonymous"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.17.20/lodash.min.js"></script>
+    <!-- third-party libs -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"
+        integrity="sha256-/xUj+3OJU5yExlq6GSYGSHk7tPXikynS7ogEvDej/m4=" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.17.20/lodash.min.js"></script>
 
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.23.0/themes/prism.min.css"
-    integrity="sha512-tN7Ec6zAFaVSG3TpNAKtk4DOHNpSwKHxxrsiw4GHKESGPs5njn/0sMCUMl2svV4wo4BK/rCP7juYz+zx+l6oeQ=="
-    crossorigin="anonymous" />
-<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.23.0/components/prism-core.min.js"
-    integrity="sha512-xR+IAyN+t9EBIOOJw5m83FTVMDsPd63IhJ3ElP4gmfUFnQlX9+eWGLp3P4t3gIjpo2Z1JzqtW/5cjgn+oru3yQ=="
-    crossorigin="anonymous"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.23.0/plugins/autoloader/prism-autoloader.min.js"
-    integrity="sha512-zc7WDnCM3aom2EziyDIRAtQg1mVXLdILE09Bo+aE1xk0AM2c2cVLfSW9NrxE5tKTX44WBY0Z2HClZ05ur9vB6A=="
-    crossorigin="anonymous"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.23.0/themes/prism.min.css"
+        integrity="sha512-tN7Ec6zAFaVSG3TpNAKtk4DOHNpSwKHxxrsiw4GHKESGPs5njn/0sMCUMl2svV4wo4BK/rCP7juYz+zx+l6oeQ=="
+        crossorigin="anonymous" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.23.0/components/prism-core.min.js"
+        integrity="sha512-xR+IAyN+t9EBIOOJw5m83FTVMDsPd63IhJ3ElP4gmfUFnQlX9+eWGLp3P4t3gIjpo2Z1JzqtW/5cjgn+oru3yQ=="
+        crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.23.0/plugins/autoloader/prism-autoloader.min.js"
+        integrity="sha512-zc7WDnCM3aom2EziyDIRAtQg1mVXLdILE09Bo+aE1xk0AM2c2cVLfSW9NrxE5tKTX44WBY0Z2HClZ05ur9vB6A=="
+        crossorigin="anonymous"></script>
 
-<!-- first-party -->
-<script src="./encoder.js"></script>
-<script src="./encoder2.js"></script>
-<script src="./testcases.js"></script>
-<style>
-    nav ul {
-        list-style-type: none;
-    }
-    nav li {
-        display: inline-block;
-        padding: .5em;
-        margin-left: .25em;
-        margin-right: .25em;
-        background-color: lightgrey;
-    
-    }
-    nav li.selected {
-        font-weight: bold;
-        background-color: darkgrey;
-    }
-    form:not(.selected) {
-        display: none;
-    }
-    #glossary {
-        top: 0;
-        right: 0;
-        position: fixed;
-        background: white;
-        border: 1px solid black;
-        padding: 2em;
-        overflow-y: auto;
-        max-height: 100vh;
-        width: min-content;
-        box-sizing: border-box;
-    }
-    #glossary dl,
-    #glossary summary
-    {
-        width: max-content;
-    }
-    #glossary dt {
-        font-family: monospace;
-        font-weight: bold;
-        margin-top: 1em
-    }
-    #glossary .wrap {
-        text-align: justify;
-    }
-    #glossary code {
-        background-color: #EEE;
-        padding-left:0.1em;
-        padding-right:0.1em;
-    }
-    .error {
-        color: red;
-    }
-    #error {
-        font-family: monospace;
-    }
-    .arrInfo {
-        font-family: monospace;
-    }
-    table {
-        border: 1px solid black;
-    }
-    table td,
-    table th {
-        padding: .25em;
-        border: 1px solid lightgrey;
-    }
-    .indent {
-        padding-left: 2em;
-    }
-    #output button {
-        margin-left: 1em;
-    }
-    input[type="text"] {
-        width: 50em;
-    }
-    .testResult {
-        font-family: monospace;
-        padding: 10px;
-    }
-</style>
+    <!-- first-party -->
+    <script src="./encoder.js"></script>
+    <script src="./encoder2.js"></script>
+    <script src="./testcases.js"></script>
+    <style>
+        nav ul {
+            list-style-type: none;
+        }
+
+        nav li {
+            display: inline-block;
+            padding: .5em;
+            margin-left: .25em;
+            margin-right: .25em;
+            background-color: lightgrey;
+
+        }
+
+        nav li.selected {
+            font-weight: bold;
+            background-color: darkgrey;
+        }
+
+        form:not(.selected) {
+            display: none;
+        }
+
+        #glossary {
+            top: 0;
+            right: 0;
+            position: fixed;
+            background: white;
+            border: 1px solid black;
+            padding: 2em;
+            overflow-y: auto;
+            max-height: 100vh;
+            width: min-content;
+            box-sizing: border-box;
+        }
+
+        #glossary dl,
+        #glossary summary {
+            width: max-content;
+        }
+
+        #glossary dt {
+            font-family: monospace;
+            font-weight: bold;
+            margin-top: 1em
+        }
+
+        #glossary .wrap {
+            text-align: justify;
+        }
+
+        #glossary code {
+            background-color: #EEE;
+            padding-left: 0.1em;
+            padding-right: 0.1em;
+        }
+
+        .error {
+            color: red;
+        }
+
+        #error {
+            font-family: monospace;
+        }
+
+        .arrInfo {
+            font-family: monospace;
+        }
+
+        table {
+            border: 1px solid black;
+        }
+
+        table td,
+        table th {
+            padding: .25em;
+            border: 1px solid lightgrey;
+        }
+
+        .indent {
+            padding-left: 2em;
+        }
+
+        #output button {
+            margin-left: 1em;
+        }
+
+        input[type="text"] {
+            width: 50em;
+        }
+
+        .testResult {
+            font-family: monospace;
+            padding: 10px;
+        }
+    </style>
 
 </head>
 
@@ -121,7 +137,8 @@
         <label for=object>Input a JSON object (JS shorthands like unquoted field names)</label>
         <br>
         <textarea id=object cols=50 rows=10 spellcheck="false">
-            {"a":{"b":[{"c":"scalar"},{"c":"scalar2"}]}}
+            {"a":[1,{"b":{"c":[1,{},2]}},2]} 
+
         </textarea>
         <br>
         <input id=submitEncoder type=button value=Encode>
@@ -179,41 +196,41 @@
             </dl>
             <div class=wrap>
                 <p>
-                Array info implicitly begins with a <code>{</code> and ends
-                with an infinite run of <code>|</code>, neither of which is
-                encoded. The implicit <code>{</code> consumes the first path
-                component. Because the final <code>|</code> is implicit, you
-                could also think of it as a separator rather than a terminator
-                of arrInfo sections.
+                    Array info implicitly begins with a <code>{</code> and ends
+                    with an infinite run of <code>|</code>, neither of which is
+                    encoded. The implicit <code>{</code> consumes the first path
+                    component. Because the final <code>|</code> is implicit, you
+                    could also think of it as a separator rather than a terminator
+                    of arrInfo sections.
 
                 <p>
-                If the entire path hasn't been consumed prior to a <code>|</code>,
-                an object will be temporarily opened for each remaining path component,
-                and the value will be inserted in the inner most object.
+                    If the entire path hasn't been consumed prior to a <code>|</code>,
+                    an object will be temporarily opened for each remaining path component,
+                    and the value will be inserted in the inner most object.
 
                 <p>
-                After a <code>|</code> or a <code>]</code>, any objects between the
-                completed value or array and the next outer array will be implicitly
-                closed. This is because an object can only store a single value in a
-                field (which may be an array), so there is no posibility for another
-                value, and therefore there is no need to explicitly encode the closing
-                of an object. The outer most array is never closed, so there will
-                always be a next outer array.
+                    After a <code>|</code> or a <code>]</code>, any objects between the
+                    completed value or array and the next outer array will be implicitly
+                    closed. This is because an object can only store a single value in a
+                    field (which may be an array), so there is no posibility for another
+                    value, and therefore there is no need to explicitly encode the closing
+                    of an object. The outer most array is never closed, so there will
+                    always be a next outer array.
 
                 <p>
-                It is an error to run out of values while there is unconsumed
-                array info. When you reach the end of the array info, there
-                must be at least one remaining value. All remaining values are
-                then inserted at that point.
+                    It is an error to run out of values while there is unconsumed
+                    array info. When you reach the end of the array info, there
+                    must be at least one remaining value. All remaining values are
+                    then inserted at that point.
 
                 <p>
-                Empty array info is used when there are no arrays in the path.
-                In this case there must be exactly one value, which may be the
-                empty array. This is equivalent to a <code>{</code> for each
-                path component, followed by a single <code>|</code>, all of
-                which would be implicitly encoded. The cell encoding is optimized
-                for this case and it adds no overhead on top of the single value
-                to be encoded, even to indicate that there is no array info.
+                    Empty array info is used when there are no arrays in the path.
+                    In this case there must be exactly one value, which may be the
+                    empty array. This is equivalent to a <code>{</code> for each
+                    path component, followed by a single <code>|</code>, all of
+                    which would be implicitly encoded. The cell encoding is optimized
+                    for this case and it adds no overhead on top of the single value
+                    to be encoded, even to indicate that there is no array info.
             </div>
         </details>
         <h2>Output:</h2>
@@ -291,7 +308,7 @@
                 for (var [i, val] of info.values.entries()) {
                     let line = `      val: ${JSON.stringify(val)}`
                     if (haveArrInfo) {
-                        if (repeatsRemaining){
+                        if (repeatsRemaining) {
                             repeatsRemaining--;
                             line += `\t  RLE encoded '|' (${repeatsRemaining} left)`
                         } else if (re.lastIndex == info.arrInfo.length) {
@@ -303,7 +320,7 @@
                             line += `\tarrInfo: ${match}`
                         }
                     }
-                    mkSpan(line +'\n').appendTo(output)
+                    mkSpan(line + '\n').appendTo(output)
                 }
 
                 if (withDecoded && info.values.length > 0) {
@@ -418,7 +435,7 @@
                 let detail = $("<td colspan=4>");
                 detail.appendTo(detailRow);
                 if (err) {
-                    detail.append(mkSpan(err.toString(), {class: 'error'}))
+                    detail.append(mkSpan(err.toString(), { class: 'error' }))
                 } else {
                     if (output) {
                         mkSpan("Output").appendTo(detail);

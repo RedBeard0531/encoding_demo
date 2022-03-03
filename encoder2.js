@@ -7,49 +7,78 @@ class FullArrInfoEncoder {
 
     constructor(root) {
         this.infos = {}
-        this.walkObj('', root, null)
+        this.walkObj('', root, [], null, true)
     }
 
-    walkObj(path, obj, parentInfo) {
-        let pathToMe;
+    walkObj(path, obj, pathToMePrefix, arrayParentInfo, root = false) {
+        let pathToMe = [];
         let pathPrefix;
-        if (parentInfo === null) {
+        if (root) {
             assert(() => path == '', this)
             pathPrefix = ''
-            pathToMe = [];
         } else {
             pathPrefix = path + '.'
-            pathToMe = parentInfo.pathToMe.concat(['{']);
+            pathToMe = pathToMePrefix.concat(['{']);
         }
 
         for (let field in obj) {
             const subpath = pathPrefix + field
-            let subInfo = this.infoFor(subpath, pathToMe.slice() /* copy */);
-            this.handleElem(subpath, obj[field], subInfo, parentInfo)
+            let subInfo = this.infoFor(subpath, pathToMe.slice() /* copy */, arrayParentInfo);
+            this.handleElem(subpath, obj[field], subInfo, arrayParentInfo)
         }
     }
 
-    walkArr(path, arr, currentInfo, parentInfo) {
-        // TODO going to need 'arrInfoPrefix' to be maintained separately than normal 'valueInfo' to
-        // get the shape right.
+    walkArr(path, arr, currentInfo, parentArrInfo) {
         currentInfo.pathToMe.push('[');
         for (currentInfo.arrayItrIndex = 0; currentInfo.arrayItrIndex < arr.length; currentInfo.arrayItrIndex++) {
             const elem = arr[currentInfo.arrayItrIndex];
+            let pathToNextElem = currentInfo.pathToMe.slice();  // copy
             if ($.isPlainObject(elem)) {
                 // TODO what about if we have an outer index?
                 this.infoFor(path).valueInfo.push('*'); // '*' == "I skipped an object".
+                if (parentArrInfo !== null) {
+                    let startCopyingIdx = 0;
+                    if (currentInfo.lastSeenIdx !== null) {
+                        startCopyingIdx = currentInfo.lastSeenIdx + 1;
+                    }
+                    let addedAtLeastOne = false;
+                    while (startCopyingIdx < currentInfo.arrayItrIndex) {
+                        addedAtLeastOne = true;
+                        if (currentInfo.valueInfo[startCopyingIdx++] === '*') {
+                            pathToNextElem.splice(currentInfo.pathToMe.length - 1, 0, "*");
+                        } else {
+                            pathToNextElem.splice(currentInfo.pathToMe.length - 1, 0, ".");
+                        }
+                    }
+                    if (addedAtLeastOne) {
+                        // TODO: seems like we need however many open brackets there were at the beginning of this array.
+                        // TODO this needs to be last *unmatched* open paren.
+                        let lastOpenArrayIdx = currentInfo.pathToMe.lastIndexOf('[');
+                        for (let i = lastOpenArrayIdx + 1; i < currentInfo.pathToMe.length && currentInfo.pathToMe[i] === '{'; ++i ){
+                            pathToNextElem.splice(currentInfo.pathToMe.length - 1, 0, '{');
+                        }
+                    }
+                }
+                let copy = Object.assign({}, currentInfo);
+                copy.pathToMe = pathToNextElem;
+                currentInfo.grandparentArrayInfo = parentArrInfo;
+                this.handleElem(path, elem, copy, currentInfo)
+            } else {
+                currentInfo.grandparentArrayInfo = parentArrInfo;
+                this.handleElem(path, elem, currentInfo, currentInfo)
             }
-            this.handleElem(path, elem, currentInfo, parentInfo)
         }
         // Now that we've finished iterating, add in the fields at the end for sparseness.
-        for (let [iPath, iInfo] of Object.entries(this.infos)) {
-            if (iPath.startsWith(path + ".")) {
-                if (iInfo.lastSeenIdx != arr.length) {
-                    for (let i = iInfo.lastSeenIdx + 1; i < arr.length; ++i) {
-                        if (currentInfo.valueInfo[i] === '*') {
-                            iInfo.valueInfo.push("*");
-                        } else {
-                            iInfo.valueInfo.push(".");
+        if (arr.length > 0) {
+            for (let [iPath, iInfo] of Object.entries(this.infos)) {
+                if (iPath.startsWith(path + ".") && iPath.slice((path + ".").length).indexOf(".") === -1) {
+                    if (iInfo.lastSeenIdx != arr.length) {
+                        for (let i = iInfo.lastSeenIdx + 1; i < arr.length; ++i) {
+                            if (currentInfo.valueInfo[i] === '*') {
+                                iInfo.valueInfo.push("*");
+                            } else {
+                                iInfo.valueInfo.push(".");
+                            }
                         }
                     }
                 }
@@ -61,29 +90,103 @@ class FullArrInfoEncoder {
         // before closing the array.
         currentInfo.pathToMe = currentInfo.pathToMe.concat(currentInfo.valueInfo).concat([']']);
         currentInfo.valueInfo = [];
+        currentInfo.arrayItrIndex = null;
     }
 
-    handleElem(path, elem, currentInfo, parentInfo) {
+    handleElem(path, elem, currentInfo, arrayParentInfo) {
+        this.infos[path] = currentInfo;  // Hack?
         if (Array.isArray(elem)) {
-            if (this.currentlyInArray(currentInfo)) {
+            if (this.currentlyInArray(currentInfo) && currentInfo.pathToMe[currentInfo.pathToMe.length - 1] === '[') {
                 // Don't bother double recursing, just add the array as a "value".
-                return this.addPossiblySparseValue(elem, currentInfo, parentInfo);
+                return this.addPossiblySparseValue(elem, currentInfo, arrayParentInfo.grandparentArrayInfo);
             }
-            return this.walkArr(path, elem, currentInfo, parentInfo)
+                
+            if (arrayParentInfo !== null) {
+                let pathToNextElem = currentInfo.pathToMe.slice();  // copy
+                let startCopyingIdx = 0;
+                if (currentInfo.lastSeenIdx !== null) {
+                    startCopyingIdx = currentInfo.lastSeenIdx + 1;
+                }
+                let addedAtLeastOne = false;
+                while (startCopyingIdx < currentInfo.arrayItrIndex) {
+                    addedAtLeastOne = true;
+                    if (arrayParentInfo.valueInfo[startCopyingIdx++] === '*') {
+                        pathToNextElem.splice(currentInfo.pathToMe.length - 1, 0, "*");
+                    } else {
+                        pathToNextElem.splice(currentInfo.pathToMe.length - 1, 0, ".");
+                    }
+                }
+                if (addedAtLeastOne) {
+                    // TODO this needs to be last *unmatched* open paren.
+                    let lastOpenArrayIdx = currentInfo.pathToMe.lastIndexOf('[');
+                    for (let i = lastOpenArrayIdx + 1; i < currentInfo.pathToMe.length && currentInfo.pathToMe[i] === '{'; ++i ){
+                        pathToNextElem.splice(currentInfo.pathToMe.length - 1, 0, '{');
+                    }
+                }
+                let copy = Object.assign({}, currentInfo);
+                copy.pathToMe = pathToNextElem;
+                return this.walkArr(path, elem, copy, arrayParentInfo)
+            } else {
+                return this.walkArr(path, elem, currentInfo, arrayParentInfo)
+            }
         }
         else if ($.isPlainObject(elem)) {
-            return this.walkObj(path, elem, currentInfo)
+            return this.walkObj(path, elem, currentInfo.pathToMe, arrayParentInfo)
+        } else if (arrayParentInfo !== null) {
+            // This was a scalar value.
+            // currentInfo.lastSeenIdx = arrayParentInfo.arrayItrIndex;
         }
 
-        this.addPossiblySparseValue(elem, currentInfo, parentInfo);
+        this.addPossiblySparseValue(elem, currentInfo, arrayParentInfo);
     }
 
-    addPossiblySparseValue(value, currentInfo, parentInfo) {
+    addPossiblySparseValue(value, currentInfo, arrayParentInfo) {
         currentInfo.values.push(value);
-        if (this.currentlyInArray(parentInfo)) {
-            let parentItrIndex = parentInfo.arrayItrIndex;
+        if (this.currentlyInArray(arrayParentInfo)) {
+            if (currentInfo === arrayParentInfo && arrayParentInfo.grandparentArrayInfo) {
+                currentInfo.lastSeenIdx = arrayParentInfo.grandparentArrayInfo.arrayItrIndex;
+            } else {
+                let parentItrIndex = arrayParentInfo.arrayItrIndex;
+                // Expect that the parent is tracking all values in the array, with a "*" for "object here".
+                if (parentItrIndex === 0) {
+                    // Nothing special required. Just add the 'v' and move on.
+                }  else {
+                    // There were some elements of the parent array that did not contain a value for our
+                    // path. Let's figure out what they were and copy them down.
+                    //
+                    // For example: {a: [{}, "scalar", {}, {b: 1}]} for "a.b".
+                    // Here 'parentDraftInfo' would be ['{', '[', '*', 'v', '*', '*'] and we want to copy
+                    // down ["*", ".", '*'].
+                    //
+                    // As another example: [{b: 1}, "scalar", {}, {b: 2}] where 'value' is 2 (we're at
+                    // the second "a.b"). Here 'parentDraftInfo' is the same but we have
+                    // 'currentInfo.lastSeenIdx' = 0 and we can skip copying the first "*" which
+                    // corresponds to our '1' value.
+                    let idxToStartCopyDown = 0;
+                    if (currentInfo.lastSeenIdx !== null) {
+                        idxToStartCopyDown = currentInfo.lastSeenIdx + 1;
+                    }
+                    for (let i = idxToStartCopyDown; i < parentItrIndex; ++i) {
+                        const pv = arrayParentInfo.valueInfo[i];
+                        if (pv === "v") {
+                            currentInfo.valueInfo.push(".");
+                        } else if (pv === "*") {
+                            currentInfo.valueInfo.push("*");
+                        } else {
+                            assert(() => false);
+                        }
+                    }
+                }
+                // Track the index where we saw a value for this path. It's the number of values in the
+                // parent - 1, since the parent already added a "*" to represent us.
+                currentInfo.lastSeenIdx = arrayParentInfo.valueInfo.length - 1;
+            }
+        }
+        /* else if (currentInfo.grandparentArrayInfo) {
+            // TODO - could it be three levels? I think it could.
+            // Ok this is on the right track but we have to put the dots in the right places - find the open brackets.
+            let parentItrIndex = currentInfo.grandparentArrayInfo.arrayItrIndex;
              // Expect that the parent is tracking all values in the array, with a "*" for "object here".
-            assert(() => parentInfo.valueInfo[parentInfo.valueInfo.length - 1] === "*");
             if (parentItrIndex === 0) {
                 // Nothing special required. Just add the 'v' and move on.
             }  else {
@@ -103,7 +206,7 @@ class FullArrInfoEncoder {
                     idxToStartCopyDown = currentInfo.lastSeenIdx + 1;
                 }
                 for (let i = idxToStartCopyDown; i < parentItrIndex; ++i) {
-                    const pv = parentInfo.valueInfo[i];
+                    const pv = currentInfo.grandparentArrayInfo.valueInfo[i];
                     if (pv === "v") {
                         currentInfo.valueInfo.push(".");
                     } else if (pv === "*") {
@@ -115,11 +218,14 @@ class FullArrInfoEncoder {
             }
             // Track the index where we saw a value for this path. It's the number of values in the
             // parent - 1, since the parent already added a "*" to represent us.
-            currentInfo.lastSeenIdx = parentInfo.valueInfo.length - 1;
+            currentInfo.lastSeenIdx = currentInfo.grandparentArrayInfo.valueInfo.length - 1;
+
         }
+            */
         currentInfo.valueInfo.push('v');
 
     }
+
     currentlyInArray(infoObj) {
         if (infoObj === null) {
             return false;  // We are traversing the root still.
@@ -128,13 +234,14 @@ class FullArrInfoEncoder {
     }
 
     // Helper that returns the info for a path, constructing the default if none exists yet
-    infoFor(path, optionalSeedPath) {
+    infoFor(path, optionalSeedPath, parentInfo) {
         if (path in this.infos)
             return this.infos[path]
 
         return (this.infos[path] = {
-            lastSeenIdx: null,
-            arrayItrIndex: null,
+            grandparentArrayInfo: (parentInfo !== null && parentInfo.grandparentArrayInfo) || null,
+            lastSeenIdx: (parentInfo !== null && parentInfo.lastSeenIdx) || null,
+            arrayItrIndex: (parentInfo !== null && parentInfo.arrayItrIndex) || null,
             values: [],
             pathToMe: optionalSeedPath || [],
             valueInfo: [],
@@ -145,6 +252,7 @@ class FullArrInfoEncoder {
     encode() {
         for (let [path, info] of Object.entries(this.infos)) {
             info.arrInfo = info.pathToMe.concat(info.valueInfo).join('');
+            info.arrInfo = info.arrInfo.replace(/\{+([v\.\*])/g, "$1");
         }
 
         return this.infos
@@ -240,7 +348,16 @@ class FullArrInfoDecoder {
             case '}':
                 return
             case 'v':
-                into[field] = this.consumeValue();
+                if (this.path.hasMore()) {
+                    into[field] = {}
+                    this.unconsumeArrInfo();
+                    this.decodeObj(into[field])
+                } else {
+                    into[field] = this.consumeValue();
+                }
+                break
+            case '.':
+                // Nothing to do here - leave an empty obj.
                 break
             case '*':
                 // Nothing to do here - leave an empty obj.
@@ -268,25 +385,19 @@ class FullArrInfoDecoder {
             switch (action) {
                 case 'v':
                     if (this.path.hasMore()) {
-                        let pathPart =this.consumePathPart();
-                        into[index++] = {[pathPart]: this.consumeValue()}
-                        this.unconsumePathPart();
+                        into[index] = {}
+                        this.unconsumeArrInfo();
+                        this.decodeObj(into[index++])
                     } else {
                         into[index++] = this.consumeValue()
                     }
                     break
                 case '{':
                     if (into[index] == undefined) into[index] = {}
-                    this.decodeObj(into[index])
+                    this.decodeObj(into[index++])
                     break
                 case '[':
-                    if (this.path.hasMore()) {
-                        let pathPart =this.consumePathPart();
-                        into[index] = {[pathPart]: []}
-                        this.decodeArr(into[index++][pathPart])
-                    } else {
-                        into[index++] = this.consumeValue()
-                    }
+                    assert(() => false);
                     break
                 case '.':
                     // into[index++] = "<uscalar>";
@@ -330,6 +441,11 @@ class FullArrInfoDecoder {
         let nextPiece = this.arrInfo.consume()
         this.consumedAllArrInfo = !this.arrInfo.hasMore();
         return nextPiece;
+    }
+
+    unconsumeArrInfo() {
+        this.arrInfo.unconsume();
+        this.consumedAllArrInfo = false;
     }
 
     consumeValue() {
