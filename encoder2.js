@@ -66,68 +66,27 @@ class FullArrInfoEncoder {
                 }
             }
         }
-        // Ok so the 'pathToMe' is interesting. We just finished consuming an array, but we could be
-        // back to this path in the future. In that case we should track that we previously had some
-        // values and are now opening a new array. So we add all the 'valueInfo' to the 'pathToMe'
-        // before closing the array.
-        currentInfo.pathToMe = currentInfo.pathToMe.concat(currentInfo.valueInfo).concat([']']);
-        currentInfo.valueInfo = [];
-        currentInfo.arrayItrIndex = null;
-    }
-
-    findLastUnmatchedBracket(path) {
-        let lastOpen = path.lastIndexOf("[");
-        while (lastOpen !== -1 && path.lastIndexOf("]") !== -1 && lastOpen < path.lastIndexOf("]")) {
-            // We have at least one matching [] pair, we can remove them both and not risk altering the index of the last _unmatched_ bracket, since it should be before these two.
-            path.splice(lastOpen, 1); 
-            path.splice(path.lastIndexOf("]"), 1); 
-            lastOpen = path.lastIndexOf("[");
-        }
     }
 
     handleElem(path, elem, currentInfo, arrayParentInfo) {
         if (Array.isArray(elem)) {
             if (this.currentlyInArray(currentInfo) && currentInfo.pathToMe[currentInfo.pathToMe.length - 1] === '[') {
                 // Don't bother double recursing, just add the array as a "value".
-                return this.addPossiblySparseValue(elem, currentInfo, arrayParentInfo);
+                return this.addValue(elem, currentInfo, arrayParentInfo);
             }
                 
-            if (arrayParentInfo !== null) {
-                // We're about to enter another array, and we were already walking one array. Before we recurse we should add the '.' and '*' markers for everything leading up to this value.
-                let pathToNextElem = currentInfo.pathToMe.slice();  // copy
-                let startCopyingIdx = 0;
-                if (currentInfo.lastSeenIdx !== null) {
-                    startCopyingIdx = currentInfo.lastSeenIdx + 1;
-                }
-                let addedAtLeastOne = false;
-                while (startCopyingIdx < currentInfo.arrayItrIndex) {
-                    addedAtLeastOne = true;
-                    if (arrayParentInfo.valueInfo[startCopyingIdx++] === '*') {
-                        pathToNextElem.splice(currentInfo.pathToMe.length - 1, 0, "*");
-                    } else {
-                        pathToNextElem.splice(currentInfo.pathToMe.length - 1, 0, ".");
-                    }
-                }
-                if (addedAtLeastOne) {
-                    // TODO this needs to be last *unmatched* open paren.
-                    let lastOpenArrayIdx = currentInfo.pathToMe.lastIndexOf('[');
-                    for (let i = lastOpenArrayIdx + 1; i < currentInfo.pathToMe.length && currentInfo.pathToMe[i] === '{'; ++i ){
-                        pathToNextElem.splice(currentInfo.pathToMe.length - 1, 0, '{');
-                    }
-                }
-                let copy = Object.assign({}, currentInfo);
-                copy.pathToMe = pathToNextElem;
-                return this.walkArr(path, elem, copy, arrayParentInfo)
-            } else {
-                if (currentInfo.arrayItrIndex !== null || currentInfo.lastSeenIdx !== null) {
-                    currentInfo.needsFetch = true;  // We've got a double array on our hands.
-                }
-                return this.walkArr(path, elem, currentInfo, currentInfo)
+            if (currentInfo.arrayItrIndex !== null || currentInfo.lastSeenIdx !== null) {
+                currentInfo.needsFetch = true;  // We've got a double array on our hands.
             }
+            return this.walkArr(path, elem, currentInfo, currentInfo)
         }
         else if ($.isPlainObject(elem)) {
-            currentInfo.hasNonEmptySubObjects = true;  // In order to reconstruct this value we are going to need the sub-paths.
+            // In order to reconstruct this value we are going to need the sub-paths.
+            currentInfo.hasNonEmptySubObjects = true;
             if (arrayParentInfo !== null) {
+                // We have an object within an array. Before we descend we need to copy over the
+                // history of this array so far, which will be helpful in filling in the prefix up
+                // to the first value of any sub-paths if those sub-paths are sparse.
                 let pathToNextElem = currentInfo.pathToMe.slice();  // copy
                 let startCopyingIdx = 0;
                 if (currentInfo.lastSeenIdx !== null) {
@@ -149,51 +108,12 @@ class FullArrInfoEncoder {
             // currentInfo.lastSeenIdx = arrayParentInfo.arrayItrIndex;
         }
 
-        this.addPossiblySparseValue(elem, currentInfo, arrayParentInfo);
+        this.addValue(elem, currentInfo, arrayParentInfo);
     }
 
-    addPossiblySparseValue(value, currentInfo, arrayParentInfo) {
+    addValue(value, currentInfo, arrayParentInfo) {
         currentInfo.values.push(value);
-        if (this.currentlyInArray(arrayParentInfo)) {
-            if (currentInfo !== arrayParentInfo) {
-                let parentItrIndex = arrayParentInfo.arrayItrIndex;
-                // Expect that the parent is tracking all values in the array, with a "*" for "object here".
-                if (parentItrIndex === 0) {
-                    // Nothing special required. Just add the 'v' and move on.
-                }  else {
-                    // There were some elements of the parent array that did not contain a value for our
-                    // path. Let's figure out what they were and copy them down.
-                    //
-                    // For example: {a: [{}, "scalar", {}, {b: 1}]} for "a.b".
-                    // Here 'parentDraftInfo' would be ['{', '[', '*', 'v', '*', '*'] and we want to copy
-                    // down ["*", ".", '*'].
-                    //
-                    // As another example: [{b: 1}, "scalar", {}, {b: 2}] where 'value' is 2 (we're at
-                    // the second "a.b"). Here 'parentDraftInfo' is the same but we have
-                    // 'currentInfo.lastSeenIdx' = 0 and we can skip copying the first "*" which
-                    // corresponds to our '1' value.
-                    let idxToStartCopyDown = 0;
-                    if (currentInfo.lastSeenIdx !== null) {
-                        idxToStartCopyDown = currentInfo.lastSeenIdx + 1;
-                    }
-                    for (let i = idxToStartCopyDown; i < parentItrIndex; ++i) {
-                        const pv = arrayParentInfo.valueInfo[i];
-                        if (pv === "v") {
-                            currentInfo.valueInfo.push(".");
-                        } else if (pv === "*") {
-                            currentInfo.valueInfo.push("*");
-                        } else {
-                            assert(() => false);
-                        }
-                    }
-                }
-                // Track the index where we saw a value for this path. It's the number of values in the
-                // parent - 1, since the parent already added a "*" to represent us.
-                currentInfo.lastSeenIdx = arrayParentInfo.valueInfo.length - 1;
-            }
-        }
         currentInfo.valueInfo.push('v');
-
     }
 
     currentlyInArray(infoObj) {
