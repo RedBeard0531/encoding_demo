@@ -331,8 +331,7 @@ class ArrInfoDecoder {
         let inserted = false
         const outputPosIx = this.outputPos.length
         this.outputPos.push(index)
-        let localDone = false;
-        while (!this.done() && !localDone) {
+        loop: while (!this.done()) {
             assert(() => this.outputPos.length == outputPosIx + 1, this)
             this.outputPos[outputPosIx] = index
 
@@ -375,35 +374,17 @@ class ArrInfoDecoder {
                 case ']':
                     this.uassert("closing array without inserting anything",
                                  inserted)
-                    localDone = true;
-                    break;
+                    break loop;
                 default:
                     this.uassert(`unexpected action '${action}' while decoding an array, expected one of []+{|`,
                                  false)
             }
         }
-
         this.outputPos.pop()
 
-        const kUnknownStr = '<unknown>';
-        // Replace all 'undefined' values with a magic string which indicates an unknown scalar.
-        // Otherwise 'undefined' will get serialized to null.
-        console.log(into);
-        for (let [ix, el] of into.entries()) {
-            if (el == undefined) {
-                into[ix] = kUnknownStr;
-            }
-        }
+        if (this.dropUnknowns)
+            _.pull(into, undefined)
 
-        if (this.dropUnknowns) {
-            let i = 0;
-            for (let [ix, el] of into.entries()) {
-                if (el != kUnknownStr) {
-                    into[i++] = into[ix];
-                }
-            }
-            into.length = i;
-        }
     }
 
     done() {

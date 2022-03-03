@@ -252,7 +252,8 @@
             return value;
         }
         function makeJsonNode(obj) {
-            let out = $('<pre>').append($('<code class=language-json>').text(JSON.stringify(obj, null, 4)))
+            let replacer = (_, val) => val === undefined ? "<unknown>" : val
+            let out = $('<pre>').append($('<code class=language-json>').text(JSON.stringify(obj, replacer, 4)))
             Prism.highlightAllUnder(out[0])
             return out
         }
