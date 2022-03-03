@@ -431,6 +431,8 @@
                 let detailRow = $('<tr class=detail>').hide()
                 let detail = $("<td colspan=4>");
                 detail.appendTo(detailRow);
+                mkSpan("Input").appendTo(detail);
+                makeJsonNode(testCase.input).appendTo(detail);
                 if (err) {
                     detail.append(mkSpan(err.toString(), {class: "error"}))
                 } else {
