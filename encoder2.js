@@ -236,10 +236,14 @@ class FullArrInfoEncoder {
     // Helper that returns the info for a path, constructing the default if none exists yet
     infoFor(path, optionalSeedPath, parentInfo) {
         if (path in this.infos) {
-            /*
-            let numUnmatchedTraversals = 
-            for (let i = 0; i <)
-            */
+            let numUnmatchedTraversals = this.infos[path].pathToMe.filter(e => e === '{' || e === '[').length - this.infos[path].pathToMe.filter(e => e === ']' || e === '}').length;
+            for (let i = 0; i < numUnmatchedTraversals; ++i) {
+                let curlIdx = optionalSeedPath.indexOf('{');
+                let brackIdx = optionalSeedPath.indexOf('[');
+                assert(() => curlIdx !== -1 || brackIdx !== -1);
+                let truncIdx = (curlIdx !== -1 && brackIdx !== -1) ? Math.min(curlIdx, brackIdx) : ((curlIdx !== -1 && curlIdx) || (brackIdx !== -1 && brackIdx));
+                optionalSeedPath = optionalSeedPath.splice(truncIdx + 1); // Remove everything up to the first open.
+            }
             if (this.infos[path].pathToMe.length > 0 && this.infos[path].pathToMe[this.infos[path].pathToMe.length - 1] == ']') {
                 if (optionalSeedPath.indexOf(']') !== -1) {
                     this.infos[path].pathToMe = this.infos[path].pathToMe.concat(optionalSeedPath.slice(optionalSeedPath.lastIndexOf(']') + 1));
