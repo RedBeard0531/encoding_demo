@@ -8,49 +8,58 @@ class ArrInfoEncoder {
 
     constructor(root) {
         this.infos = {}
-        this.walkObj('', [], root, true)
+        this.walkObj(this.infoFor('\xff'), [], root, true)
     }
 
-    walkObj(path, arrInfoPrefix, obj, isRoot = false) {
+    walkObj(info, arrInfoPrefix, obj, isRoot = false) {
         if (isRoot) {
-            this.infoFor('\xff').hasNonEmptySubObjects = true
-            assert(() => path == '', this)
+            info.hasNonEmptySubObjects = true
+            assert(() => info.path == '\xff', this)
             var pathPrefix = ''
             var arrInfo = arrInfoPrefix
         } else {
-            this.infoFor(path).hasNonEmptySubObjects = true
-            var pathPrefix = path + '.'
+            info.hasNonEmptySubObjects = true
+            var pathPrefix = info.path + '.'
             var arrInfo = arrInfoPrefix.concat(['{'])
         }
 
+        info.nSubObjects += 1
         for (let field in obj) {
-            const subpath = pathPrefix + field
-            this.infoFor(subpath).nSeen += 1
-            this.handleElem(subpath, arrInfo, obj[field])
+            const subinfo = this.infoFor(pathPrefix + field)
+            subinfo.nSeen += 1
+            this.handleElem(subinfo, arrInfo, obj[field], 'object')
         }
     }
 
-    walkArr(path, arrInfoPrefix, arr) {
+    walkArr(info, arrInfoPrefix, arr) {
         let arrInfo = arrInfoPrefix.concat(['[', 0])
         const arrInfoIx = arrInfo.length - 1
         for (let i = 0; i < arr.length; i++) {
             arrInfo[arrInfoIx] = i
-            this.handleElem(path, arrInfo, arr[i])
+            this.handleElem(info, arrInfo, arr[i], 'array')
         }
     }
 
-    handleElem(path, arrInfoPrefix, elem) {
-        let info = this.infoFor(path)
-
+    handleElem(info, arrInfoPrefix, elem, parentKind) {
         if (Array.isArray(elem)) {
+            if (!elem.some($.isPlainObject)) // note, branch always taken for empty arrays.
+                info.childrenMustBeSparse = true
+
             if (elem.length != 0)
-                return this.walkArr(path, arrInfoPrefix, elem)
+                return this.walkArr(info, arrInfoPrefix, elem)
             // empty array treated as leaf scalar
         } else if ($.isPlainObject(elem)) {
-            info.nSubObjects += 1
-            if (!$.isEmptyObject(elem))
-                return this.walkObj(path, arrInfoPrefix, elem)
+            if (!$.isEmptyObject(elem)) {
+                return this.walkObj(info, arrInfoPrefix, elem)
+            }
             // empty object treated as leaf scalar
+
+            // empty objects even in arrays make siblings sparse
+            info.childrenMustBeSparse = true
+        } else if (parentKind == 'object') {
+            // If we have a scalar directly inside of an object, then any subpaths of that must be scalar.
+            // Don't do this inside of for arrays because a.b isn't sparse in {a: [1, {b: 2}, null]}.
+            info.childrenMustBeSparse = true
         }
 
         info.values.push(elem)
@@ -63,15 +72,15 @@ class ArrInfoEncoder {
             return this.infos[path]
 
         return (this.infos[path] = {
+            path: path,
             nSeen: 0,
             nSubObjects: 0,
             hasNonEmptySubObjects: false,
             values: [],
             rawArrInfos: [],
             arrInfo: [],
+            childrenMustBeSparse: false, // Can only go false -> true. Must never be assigned false after init.
             // isSparse: bool, // Added in checkSparse(). Absence means not computed yet.
-
-            path: path // For debugging.
         })
     }
 
@@ -99,7 +108,7 @@ class ArrInfoEncoder {
 
         let parentInfo = this.infoFor(parent)
         this.checkSparse(parent, parentInfo) // ensure parent's sparseness is computed before ours
-        if (parentInfo.isSparse) {
+        if (parentInfo.isSparse || parentInfo.childrenMustBeSparse) {
             // If parent is sparse, we automatically are.
             info.isSparse = true
             return
