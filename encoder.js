@@ -26,31 +26,25 @@ class ArrInfoEncoder {
         for (let field in obj) {
             const subpath = pathPrefix + field
             this.infoFor(subpath).nSeen += 1
-            this.handleElem(subpath, arrInfo, 0 /* direct array depth */, obj[field])
+            this.handleElem(subpath, arrInfo, obj[field])
         }
     }
 
-    walkArr(path, arrInfoPrefix, arrayDepth, arr) {
-        // We compare with exactly 2 here since we only care about
-        // arrays directly nested in another array. For [[[]], [], []], for example,
-        // we would report three directly nested arrays (not four).
-        if (arrayDepth == 2) {
-            this.infoFor(path).nDirectlyNestedNonEmptyArrays += 1;
-        }
+    walkArr(path, arrInfoPrefix, arr) {
         let arrInfo = arrInfoPrefix.concat(['[', 0])
         const arrInfoIx = arrInfo.length - 1
         for (let i = 0; i < arr.length; i++) {
             arrInfo[arrInfoIx] = i
-            this.handleElem(path, arrInfo, arrayDepth, arr[i])
+            this.handleElem(path, arrInfo, arr[i])
         }
     }
 
-    handleElem(path, arrInfoPrefix, arrayDepth, elem) {
+    handleElem(path, arrInfoPrefix, elem) {
         let info = this.infoFor(path)
 
         if (Array.isArray(elem)) {
             if (elem.length != 0)
-                return this.walkArr(path, arrInfoPrefix, arrayDepth + 1, elem)
+                return this.walkArr(path, arrInfoPrefix, elem)
             // empty array treated as leaf scalar
         } else if ($.isPlainObject(elem)) {
             info.nSubObjects += 1
@@ -71,7 +65,6 @@ class ArrInfoEncoder {
         return (this.infos[path] = {
             nSeen: 0,
             nSubObjects: 0,
-            nDirectlyNestedNonEmptyArrays: 0,
             hasNonEmptySubObjects: false,
             values: [],
             rawArrInfos: [],
@@ -112,8 +105,7 @@ class ArrInfoEncoder {
             return
         }
 
-        info.isSparse = info.nSeen != parentInfo.nSubObjects ||
-            parentInfo.nDirectlyNestedNonEmptyArrays > 0;
+        info.isSparse = info.nSeen != parentInfo.nSubObjects
     }
 
     // This is called to encode the output after the object has been completely walked.
