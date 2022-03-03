@@ -137,7 +137,7 @@
         <label for=object>Input a JSON object (JS shorthands like unquoted field names)</label>
         <br>
         <textarea id=object cols=50 rows=10 spellcheck="false">
-            {"a":[1,{"b":{"c":[1,{},2]}},2]} 
+            {a: [{b: [{c: 1}, {}]}, {b: [{}, {c: 2}]}]}
 
         </textarea>
         <br>
@@ -285,6 +285,10 @@
                     let marker = '  Marker: HAS_SUB_OBJECTS'
                     if (info.values.length == 0)
                         marker += ' (implicit with empty cell value)'
+                    mkSpan(marker + '\n').appendTo(output)
+                }
+                if (info.needsFetch) {
+                    let marker = '  Marker: NEEDS_FETCH'
                     mkSpan(marker + '\n').appendTo(output)
                 }
                 if (info.isSparse) {
