@@ -217,7 +217,7 @@ class ArrInfoDecoder {
      *     object that would result by executing the pipeline [{$project: {<path>: 1}}].
      * @param {Object} encodingInfo The entire encoding object. Ideally you can reconstruct the
      *     answer from just `encodingInfo[path]`, but you
-     * @returns {answer: {Object}, extraColumnsConsulted: [{String}], needsFetch: {string | undefined}}
+     * @returns {{answer?: Object, extraColumnsConsulted?: string[], needsFetch?: string}}
      * If you cannot compute the answer with the encoding scheme, just return {needsFetch: true}.
      */
     static answerProjection(path, encodingInfo) {
