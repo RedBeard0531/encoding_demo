@@ -459,4 +459,9 @@ const testCases = [
         'expectedProjectionOutput': {a: [{b: {c: 1}}, {}]},
         'expectedFieldPathOutput': [1],
     },
+    {
+        'input': {a: [{b: []}, {b: []}]},
+        'expectedProjectionOutput': {a: [{b: []}, {b: []}]},
+        'expectedFieldPathOutput': 'missing'
+    }
 ];

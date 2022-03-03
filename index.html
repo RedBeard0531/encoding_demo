@@ -33,7 +33,7 @@
         margin-left: .25em;
         margin-right: .25em;
         background-color: lightgrey;
-    
+
     }
     nav li.selected {
         font-weight: bold;
@@ -162,7 +162,7 @@
     </form>
 
     <div>
-        <details open id=glossary>
+        <details id=glossary>
             <summary><big>Array Info Components</big></summary>
             <dl>
                 <dt>{
@@ -389,7 +389,7 @@
             output.innerHTML = '';
             let table = $('<table>');
             table.appendTo(output);
-            table.append("<thead><tr><td>Input</td><td>Correct Answer?</td><td>Needed Extra Info?</td><td></td></tr></thead>");
+            table.append("<thead><tr><td>Input</td><td>Correct Answer?</td><td>Needed Fetch?</td><td>Other Columns Used</td><td></td></tr></thead>");
             let tbody = $('<tbody>');
             table.append(tbody);
 
@@ -424,6 +424,13 @@
                 } else {
                     newRow.append(`<td></td>`);
                 }
+
+                if (decoded.extraColumnsConsulted) {
+                    newRow.append(`<td>${decoded.extraColumnsConsulted}</td>`);
+                } else {
+                    newRow.append(`<td></td>`);
+                }
+
                 let btn = $('<input type=button class="showResultBtn" value="Detail">');
                 newRow.append(btn.wrap("<td>"));
                 tbody.append(newRow);
@@ -451,9 +458,13 @@
             }
 
             output.append("\nFetch Reasons:\n")
+            let totalFetches = 0
             for (let [reason, count] of Object.entries(fetchReasonCounts)) {
                 output.append(`    ${reason}: ${count}\n`)
+                totalFetches += count
             }
+            output.append(`Total fetches: ${totalFetches}\n`)
+            output.append(`Total test cases: ${testCases.length}\n`)
 
             $("#encoderForm").hide();
             $('#error').hide()

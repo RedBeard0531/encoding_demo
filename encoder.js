@@ -238,9 +238,38 @@ class ArrInfoDecoder {
                                true /* drop unknowns */
                               )
                 .decodeRoot(into)
-            return {answer: into, extraColumnsConsulted: []};
+            return {answer: into};
         }
-        return {needsFetch: 'no data for path'};
+
+        const parentPath = ArrInfoEncoder.parentPath(path);
+        let ret = {extraColumnsConsulted: [parentPath]};
+        if (parentPath in encodingInfo) {
+            let parentInfo = encodingInfo[parentPath];
+            if (parentInfo.hasNonEmptySubObjects) {
+                return {needsFetch: 'parent subobject marker'};
+            }
+            if (parentInfo.isSparse) {
+                return {needsFetch: 'parent sparse data marker'};
+            }
+
+            // If the parent contains just an empty array, we can answer the projection
+            // without going to the row store.
+            if (parentInfo.values.length == 1 &&
+                Array.isArray(parentInfo.values[0]) &&
+                parentInfo.values[0].length == 0) {
+                let into = {};
+                new ArrInfoDecoder(parentPath,
+                                   parentInfo.values,
+                                   parentInfo.arrInfo,
+                                   true /* drop unknowns */
+                                  )
+                    .decodeRoot(into)
+                ret.answer = into;
+                return ret;
+            }
+        }
+        ret.needsFetch = 'no data for path';
+        return ret;
     }
 
     constructor(path, values, arrInfo, dropUnknowns=false) {
