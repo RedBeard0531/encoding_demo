@@ -103,9 +103,6 @@ class FullArrInfoEncoder {
             } else {
                 return this.walkObj(path, elem, currentInfo.pathToMe, arrayParentInfo, currentInfo)
             }
-        } else if (arrayParentInfo !== null) {
-            // This was a scalar value.
-            // currentInfo.lastSeenIdx = arrayParentInfo.arrayItrIndex;
         }
 
         this.addValue(elem, currentInfo, arrayParentInfo);
@@ -289,7 +286,6 @@ class FullArrInfoDecoder {
                     if (into[index] == undefined) into[index] = {}
                     this.unconsumeArrInfo();
                     this.decodeObj(into[index])
-                    // assert(() => false);
                     break
                 case '.':
                     // into[index++] = "<uscalar>";
