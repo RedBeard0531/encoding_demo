@@ -246,10 +246,12 @@ class ArrInfoDecoder {
         if (parentPath in encodingInfo) {
             let parentInfo = encodingInfo[parentPath];
             if (parentInfo.hasNonEmptySubObjects) {
-                return {needsFetch: 'parent subobject marker'};
+                ret.needsFetch = 'parent subobject marker';
+                return ret;
             }
             if (parentInfo.isSparse) {
-                return {needsFetch: 'parent sparse data marker'};
+                ret.needsFetch = 'parent sparse data marker';
+                return ret;
             }
 
             // If the parent contains just an empty array, we can answer the projection
