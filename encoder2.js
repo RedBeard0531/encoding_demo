@@ -72,7 +72,7 @@ class FullArrInfoEncoder {
         if (Array.isArray(elem)) {
             if (this.currentlyInArray(currentInfo) && currentInfo.pathToMe[currentInfo.pathToMe.length - 1] === '[') {
                 // Don't bother double recursing, just add the array as a "value".
-                return this.addValue(elem, currentInfo, arrayParentInfo);
+                return this.addValue(elem, currentInfo);
             }
                 
             if (currentInfo.arrayItrIndex !== null || currentInfo.lastSeenIdx !== null) {
@@ -81,6 +81,9 @@ class FullArrInfoEncoder {
             return this.walkArr(path, elem, currentInfo, currentInfo)
         }
         else if ($.isPlainObject(elem)) {
+            if ($.isEmptyObject(elem)) {
+                return this.addValue(elem, currentInfo);
+            }
             // In order to reconstruct this value we are going to need the sub-paths.
             currentInfo.hasNonEmptySubObjects = true;
             if (arrayParentInfo !== null) {
@@ -105,10 +108,10 @@ class FullArrInfoEncoder {
             }
         }
 
-        this.addValue(elem, currentInfo, arrayParentInfo);
+        this.addValue(elem, currentInfo);
     }
 
-    addValue(value, currentInfo, arrayParentInfo) {
+    addValue(value, currentInfo) {
         currentInfo.values.push(value);
         currentInfo.valueInfo.push('v');
     }
