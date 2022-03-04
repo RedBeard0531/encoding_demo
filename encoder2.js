@@ -44,7 +44,6 @@ class FullArrInfoEncoder {
         currentInfo.pathToMe.push('[');
         for (currentInfo.arrayItrIndex = 0; currentInfo.arrayItrIndex < arr.length; currentInfo.arrayItrIndex++) {
             const elem = arr[currentInfo.arrayItrIndex];
-            let pathToNextElem = currentInfo.pathToMe.slice();  // copy
             if ($.isPlainObject(elem)) {
                 currentInfo.valueInfo.push('*'); // '*' == "I skipped an object".
             }
@@ -58,8 +57,6 @@ class FullArrInfoEncoder {
                         for (let i = iInfo.lastSeenIdx + 1; i < arr.length; ++i) {
                             if (currentInfo.valueInfo[i] === '*') {
                                 iInfo.valueInfo.push("*");
-                            } else {
-                                iInfo.valueInfo.push(".");
                             }
                         }
                     }
@@ -81,11 +78,10 @@ class FullArrInfoEncoder {
             return this.walkArr(path, elem, currentInfo, currentInfo)
         }
         else if ($.isPlainObject(elem)) {
-            if ($.isEmptyObject(elem)) {
-                return this.addValue(elem, currentInfo);
+            if (!$.isEmptyObject(elem)) {
+                // In order to reconstruct this value we are going to need the sub-paths.
+                currentInfo.hasNonEmptySubObjects = true;
             }
-            // In order to reconstruct this value we are going to need the sub-paths.
-            currentInfo.hasNonEmptySubObjects = true;
             if (arrayParentInfo !== null) {
                 // We have an object within an array. Before we descend we need to copy over the
                 // history of this array so far, which will be helpful in filling in the prefix up
@@ -98,8 +94,6 @@ class FullArrInfoEncoder {
                 while (startCopyingIdx < currentInfo.arrayItrIndex) {
                     if (arrayParentInfo.valueInfo[startCopyingIdx++] === '*') {
                         pathToNextElem.push("*");
-                    } else {
-                        pathToNextElem.push(".");
                     }
                 }
                 return this.walkObj(path, elem, pathToNextElem, null, currentInfo)
@@ -171,8 +165,54 @@ class FullArrInfoDecoder {
             new FullArrInfoDecoder(path, encodingInfo[path].values, encodingInfo[path].arrInfo)
                 .decodeRoot(into)
             return {answer: into, extraColumnsConsulted: []};
+        } 
+        // The path didn't exist in the input. Look for the closest parent that does exist.
+        if (path.indexOf(".") !== -1) {
+            path = path.slice(0, path.lastIndexOf("."));
+            let answer = FullArrInfoDecoder.answerProjection(path, encodingInfo);
+            if (answer.answer) {
+                // We have the shape of the outermost path that exists. So everything from there
+                // down should be empty objects - but how many? Walk the object to find any place to
+                // put the empty objects.
+                // We're going to take advantage of JS's shallow copies to figure out where to put
+                // things. In C++ maybe we could re-use projection machinery.
+                let existingComponents = path.split(".");
+                let locationsToAdd = [answer.answer];  // This should all be objects.
+                for (let comp of existingComponents) {
+                    let newLocations = [];
+                    for (let location of locationsToAdd) {
+                        assert(() => $.isPlainObject(location));
+                        if (!location.hasOwnProperty(comp)) {
+                            // There was a parent which was an empty object. The semantics are to just leave this.
+                            // e.g. projecting "a.b" in {a: {}} will result in {a: {}} not {a: {b: {}}.
+                            continue;
+                        }
+                        if (Array.isArray(location[comp])) {
+                            let newArray = [];
+                            for (let elem of location[comp]) {
+                                if (Array.isArray(elem)) {
+                                    return {needsFetch: true, extraColumnsConsulted: [], answer: null};  // TODO we could probably handle this.
+                                }
+                                if ($.isPlainObject(elem)) {
+                                    newArray.push(elem)
+                                    newLocations.push(elem);
+                                }
+                            }
+                            location[comp] = newArray;
+                        } else if ($.isPlainObject(location[comp])){
+                            newLocations.push(location[comp]);
+                        } else {
+                            // This was a scalar as a parent. The semantics are to not return this.
+                            delete location[comp];
+                        }
+                    }
+                    locationsToAdd = newLocations;
+                }
+
+                return {needsFetch: false, answer: answer.answer, extraColumnsConsulted: answer.extraColumnsConsulted.concat(path)}
+            }
         }
-        return {needsFetch: true};
+        return {answer: null, needsFetch: true, extraColumnsConsulted: []};
     }
 
     constructor(path, values, arrInfo) {
@@ -196,9 +236,6 @@ class FullArrInfoDecoder {
         if (!this.arrInfo.empty())
             return this.decodeObj(into)
 
-        // Simple no-array case:
-        this.uassert('when valueInfo is empty, must have exactly one value',
-                     this.values.length == 1)
         this.decodeNestedPath(into)
     }
 
@@ -213,7 +250,11 @@ class FullArrInfoDecoder {
         } else {
             this.uassert(`attempting to overwrite field '${field}'`,
                          !(field in into))
-            into[field] = this.consumeValue()
+            if (this.values.hasMore()) {
+                into[field] = this.consumeValue()
+            } else {
+                into[field] = {};
+            }
         }
 
         this.unconsumePathPart()
@@ -223,6 +264,10 @@ class FullArrInfoDecoder {
         const field = this.consumePathPart()
         this.uassert(`attempting to insert a field '${field}' into non-object ${into}`,
                      $.isPlainObject(into))
+        if (!this.arrInfo.hasMore()) {
+            into[field] = {};
+            return;
+        }
 
         const action = this.consumeArrInfo()
         switch (action) {

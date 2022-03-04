@@ -428,6 +428,8 @@
                 newRow.append($('<td>').text(err ? "🔥" : success ? "✅" : "❌"));
                 if (decoded.needsFetch) {
                     newRow.append(`<td>🆘 row store fetch required</td>`);
+                } else if (decoded.extraColumnsConsulted.length > 0) {
+                    newRow.append(`<td>Extra columns: ${JSON.stringify(decoded.extraColumnsConsulted)}</td>`);
                 } else {
                     newRow.append(`<td></td>`);
                 }
