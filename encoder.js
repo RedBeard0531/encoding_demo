@@ -32,6 +32,7 @@ class ArrInfoEncoder {
     }
 
     walkArr(info, arrInfoPrefix, arr) {
+        info.hasNonEmptyArrays = true;
         let arrInfo = arrInfoPrefix.concat(['[', 0])
         const arrInfoIx = arrInfo.length - 1
         for (let i = 0; i < arr.length; i++) {
@@ -81,6 +82,10 @@ class ArrInfoEncoder {
             arrInfo: [],
             childrenMustBeSparse: false, // Can only go false -> true. Must never be assigned false after init.
             // isSparse: bool, // Added in checkSparse(). Absence means not computed yet.
+
+            // Whether any value at this path is ever an array.
+            hasNonEmptyArrays: false, // May go to true.
+            // arraysInPath: bool // Whether anything along the path to this value(s) is an array.
         })
     }
 
@@ -93,6 +98,26 @@ class ArrInfoEncoder {
     static parentPath(path) {
         let dot = path.lastIndexOf('.')
         return dot == -1 ? null : path.substring(0, dot)
+    }
+
+    checkArrays(path, info) {
+        if ('arraysInPath' in info)
+            return
+
+        let parent = ArrInfoEncoder.parentPath(path)
+        if (!parent) {
+            info.arraysInPath = false;
+            return
+        }
+
+        let parentInfo = this.infoFor(parent)
+        this.checkArrays(parent, parentInfo)
+        if (parentInfo.arraysInPath || parentInfo.hasNonEmptyArrays) {
+            info.arraysInPath = true;
+            return;
+        }
+
+        info.arraysInPath = false
     }
 
     checkSparse(path, info) {
@@ -121,6 +146,7 @@ class ArrInfoEncoder {
     encode() {
         for (let [path, info] of Object.entries(this.infos)) {
             this.checkSparse(path, info)
+            this.checkArrays(path, info)
             assert(() => 'isSparse' in info)
 
             assert(() => info.values.length == info.rawArrInfos.length)
@@ -245,6 +271,35 @@ class ArrInfoDecoder {
         let ret = {extraColumnsConsulted: [parentPath]};
         if (parentPath in encodingInfo) {
             let parentInfo = encodingInfo[parentPath];
+
+            // If the parent isn't an array and has no arrays, we can also answer the projection.
+            if (!parentInfo.hasNonEmptyArrays && !parentInfo.arraysInPath) {
+                assert(() => parentInfo.values.length <= 1);
+
+                let splitPath = parentPath.split('.');
+                const lastComponent = splitPath.pop();
+
+                let finalObj = {};
+                let cur = finalObj;
+                for (let pathComp of splitPath) {
+                    cur[pathComp] = {};
+                    cur = cur[pathComp];
+                }
+
+                if (parentInfo.hasNonEmptySubObjects) {
+                    cur[lastComponent] = {};
+                } else if($.isEmptyObject(parentInfo.values[0]) ||
+                          Array.isArray(parentInfo.values[0]) // guaranteed to be empty arr
+                         ) {
+                    cur[lastComponent] = parentInfo.values[0];
+                } else {
+                    // The parent is a scalar, so we do not include it in the output.
+                }
+
+                ret.answer = finalObj;
+                return ret;
+            }
+
             if (parentInfo.hasNonEmptySubObjects) {
                 ret.needsFetch = 'parent subobject marker';
                 return ret;
