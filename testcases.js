@@ -1,4 +1,29 @@
 const testCases = [
+    {
+        input: {a: {b: [{d: 1}, {c: 1}, {d: 2, c: 2}, {d: 1}]}},
+        expectedProjectionOutput: {a: {b: [{}, {c: 1}, {c: 2}, {}]}},
+        expectedFieldPathOutput: [1, 2],
+    },
+    {
+        input: {a: {b: [{c: 1}, {d: 2, c: 2}, {c: 3}]}},
+        expectedProjectionOutput: {a: {b: [{c: 1}, {c: 2}, {c: 3}]}},
+        expectedFieldPathOutput: [1, 2, 3],
+    },
+    {
+        input: {a: [{b: {c: 1}}, {d: 2, b: {c: 2}}, {b: {c: 3}}]},
+        expectedProjectionOutput: {a: [{b: {c: 1}}, {b: {c: 2}}, {b: {c: 3}}]},
+        expectedFieldPathOutput: [1, 2, 3],
+    },
+    {
+        input: {a: {b: {c: []}}},
+        expectedProjectionOutput: {a: {b: {c: []}}},
+        expectedFieldPathOutput: [],
+    },
+    {
+        input: {a: {b: {c: {}}}},
+        expectedProjectionOutput: {a: {b: {c: {}}}},
+        expectedFieldPathOutput: {},
+    },
     { 'input': {}, 'expectedProjectionOutput': {}, 'expectedFieldPathOutput': 'missing' },
     {
         'input': { "a": null },

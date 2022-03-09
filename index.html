@@ -313,6 +313,7 @@
                         }
                     }
                     mkSpan(line +'\n').appendTo(output)
+                    mkSpan(`      arrIdxs: ${JSON.stringify(info.outerArrayIndexesForValues[i])}'\n`).appendTo(output)
                 }
 
                 if (withDecoded && info.values.length > 0) {

@@ -1,6 +1,5 @@
 "use strict";
 
-
 class ArrInfoEncoder {
     static encode(root) {
         return new ArrInfoEncoder(root).encode()
@@ -8,10 +7,10 @@ class ArrInfoEncoder {
 
     constructor(root) {
         this.infos = {}
-        this.walkObj('', [], root, true)
+        this.walkObj('', [], root, [], true)
     }
 
-    walkObj(path, arrInfoPrefix, obj, isRoot = false) {
+    walkObj(path, arrInfoPrefix, obj, outerArrayTraversals, isRoot = false) {
         if (isRoot) {
             this.infoFor('\xff').hasNonEmptySubObjects = true
             assert(() => path == '', this)
@@ -26,11 +25,13 @@ class ArrInfoEncoder {
         for (let field in obj) {
             const subpath = pathPrefix + field
             this.infoFor(subpath).nSeen += 1
-            this.handleElem(subpath, arrInfo, 0 /* direct array depth */, obj[field])
+            this.handleElem(subpath, arrInfo, 0 /* direct array depth */, outerArrayTraversals, obj[field])
         }
     }
 
-    walkArr(path, arrInfoPrefix, arrayDepth, arr) {
+    // Note: 'arrayDepth' is reset when we see an object. So it's 'local' in some sense.
+    // 'outerArrayTraversals' is global, for any outer arrays.
+    walkArr(path, arrInfoPrefix, arrayDepth, outerArrayTraversals, arr) {
         // We compare with exactly 2 here since we only care about
         // arrays directly nested in another array. For [[[]], [], []], for example,
         // we would report three directly nested arrays (not four).
@@ -41,25 +42,27 @@ class ArrInfoEncoder {
         const arrInfoIx = arrInfo.length - 1
         for (let i = 0; i < arr.length; i++) {
             arrInfo[arrInfoIx] = i
-            this.handleElem(path, arrInfo, arrayDepth, arr[i])
+            this.handleElem(path, arrInfo, arrayDepth, outerArrayTraversals.concat([i]), arr[i])
         }
     }
 
-    handleElem(path, arrInfoPrefix, arrayDepth, elem) {
+    handleElem(path, arrInfoPrefix, arrayDepth, outerArrayTraversals, elem) {
         let info = this.infoFor(path)
 
         if (Array.isArray(elem)) {
             if (elem.length != 0)
-                return this.walkArr(path, arrInfoPrefix, arrayDepth + 1, elem)
+                return this.walkArr(path, arrInfoPrefix, arrayDepth, outerArrayTraversals, elem)
             // empty array treated as leaf scalar
         } else if ($.isPlainObject(elem)) {
             info.nSubObjects += 1
             if (!$.isEmptyObject(elem))
-                return this.walkObj(path, arrInfoPrefix, elem)
-            // empty object treated as leaf scalar
+                this.walkObj(path, arrInfoPrefix, elem, outerArrayTraversals)
+            elem = {};
+            // all objects treated as scalars
         }
 
         info.values.push(elem)
+        info.outerArrayIndexesForValues.push(outerArrayTraversals)
         info.rawArrInfos.push(arrInfoPrefix.concat(['|']))
     }
 
@@ -74,6 +77,7 @@ class ArrInfoEncoder {
             nDirectlyNestedNonEmptyArrays: 0,
             hasNonEmptySubObjects: false,
             values: [],
+            outerArrayIndexesForValues: [],
             rawArrInfos: [],
             arrInfo: [],
             // isSparse: bool, // Added in checkSparse(). Absence means not computed yet.
