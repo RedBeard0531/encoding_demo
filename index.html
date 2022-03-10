@@ -132,6 +132,10 @@
     ]
 }</textarea>
         <br>
+        <label for=recordId>RecordId:</label>
+        <textarea id=recordId cols=4 rows=1 spellcheck="false">
+1</textarea>
+        <br>
         <input id=submitEncoder type=button value=Encode>
     </form>
 
@@ -251,6 +255,15 @@
                 throw Error('The top level must be an object');
             return value;
         }
+
+        function makeInlineJsonNode(obj) {
+            let codeBlock = $('<code class=language-json>').text(JSON.stringify(obj));
+            let out = $('<code>').append(codeBlock)
+            Prism.highlightAllUnder(out[0])
+            codeBlock.css({ background: '#fff', 'font-size': '13px' });
+            return out
+        }
+
         function makeJsonNode(obj) {
             let replacer = (_, val) => val === undefined ? "<unknown>" : val
             let out = $('<pre>').append($('<code class=language-json>').text(JSON.stringify(obj, replacer, 4)))
@@ -266,7 +279,83 @@
             return out
         }
 
+        function makeColorfulSpan(path, recordId, valueObj, output) {
+            // Make sure the font aligns with the size of the colorized output.
+            let out = $('<code>').css({ 'font-family': 'monospace', 'font-size': '13px' });
+            $('<span>').text("(").appendTo(out);
+            // Path encoding with the colors.
+            if (path === '\\xFF') {
+                $('<span>').css({ color: 'rgb(225, 133, 62)' }).text(path).appendTo(out);
+            } else {
+                $('<span>').css({ color: 'rgb(99, 154, 78)' }).text(path).appendTo(out);
+                $('<span>').css({ color: 'rgb(225, 133, 62)' }).text('\\0').appendTo(out);
+            }
+            $('<span>').css({ color: 'rgb(100, 160, 211)' }).text(recordId).appendTo(out);
+            $('<span>').text(", {").appendTo(out);
+            const entries = Object.entries(valueObj);
+            for (let i = 0; i < entries.length; i++) {
+                let [k, v] = entries[i];
+                let colorMap = {
+                    vs: 'rgb(104,105,166)',  // purplish.
+                    flags: 'rgb(209,86,30)',  // redish.
+                    arrInfo: 'rgb(38,145,110)'  // dark green.
+                };
+                $('<span>').css({ color: colorMap[k] }).text(k).appendTo(out);
+                $('<span>').text(': ').appendTo(out);
+                if (k == 'vs') {
+                    // Colorized inline json.
+                    let values = makeInlineJsonNode(v);
+                    let vsSpan = $('<span>');
+                    values.appendTo(vsSpan);
+                    vsSpan.appendTo(out);
+                } else if (k == 'flags') {
+                    // No quotes - b/c they're just flags?
+                    $('<span>').css({ color: colorMap[k] }).text(`${v}`).appendTo(out);
+                } else if (k == 'arrInfo') {
+                    $('<span>').css({ color: colorMap[k] }).text(`"${v}"`).appendTo(out);
+                }
+                if (i != entries.length - 1) {
+                    $('<span>').text(', ').appendTo(out);
+                }
+            }
+            $('<span>').text(`})`).appendTo(out);
+            out.appendTo(output);
+        }
+
+        function addBriefColoredFormat(encoded, output) {
+            const recordId = $('#recordId').val();
+            for (let [path, info] of Object.entries(encoded).sort()) {
+                mkSpan('\n').appendTo(output)
+
+                if (path == '\xff') {
+                    makeColorfulSpan('\\xFF', recordId, {}, output);
+                    continue;
+                }
+
+                let valueObj = {};
+                if (info.hasNonEmptySubObjects)
+                    valueObj.flags = ["HAS_SUB_OBJECTS"];
+                assert(() => 'isSparse' in info)
+                if (info.isSparse) {
+                    if (!valueObj.hasOwnProperty("flags"))
+                        valueObj.flags = [];
+                    valueObj.flags.push("IS_SPARSE");
+                }
+
+                if (info.values.length > 0)
+                    valueObj.vs = info.values;
+                if (info.arrInfo.length > 0)
+                    valueObj.arrInfo = info.arrInfo;
+
+                makeColorfulSpan(path, recordId, valueObj, output);
+                mkSpan('\n').appendTo(output)
+            }
+        }
+
         function addEncoderOutput(encoded, output, withDecoded = true) {
+            addBriefColoredFormat(encoded, output);
+            mkSpan('\n\n').appendTo(output)
+
             for (let [path, info] of Object.entries(encoded).sort()) {
                 if (path == '\xff')
                     path = '\\xFF (row id pseudo-column)'
