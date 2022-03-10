@@ -33,7 +33,7 @@
         margin-left: .25em;
         margin-right: .25em;
         background-color: lightgrey;
-    
+
     }
     nav li.selected {
         font-weight: bold;
@@ -162,7 +162,7 @@
     </form>
 
     <div>
-        <details open id=glossary>
+        <details id=glossary>
             <summary><big>Array Info Components</big></summary>
             <dl>
                 <dt>{
@@ -385,16 +385,12 @@
         }
 
         function recomputeTestCases() {
-            const output = document.getElementById('output')
-            output.innerHTML = '';
-            let table = $('<table>');
-            table.appendTo(output);
-            table.append("<thead><tr><td>Input</td><td>Correct Answer?</td><td>Needed Extra Info?</td><td></td></tr></thead>");
-            let tbody = $('<tbody>');
-            table.append(tbody);
-
             let fetchReasonCounts = {}
             let addFetch = (reason) => { fetchReasonCounts[reason] = (fetchReasonCounts[reason] || 0) + 1 }
+
+            let tests = []
+
+            // Add all of the projection tests.
             for (let testCase of testCases) {
                 const encoded = ArrInfoEncoder.encode(testCase.input);
 
@@ -415,10 +411,77 @@
                     err = e
                     console.log(err);
                 }
+                tests.push({
+                    type: "inclusion projection",
+                    expected: testCase.expectedProjectionOutput,
+                    actualOutput: output,
+                    success: success,
+                    err: err,
+                    encoded: encoded,
+                    decoded: decoded,
+                    testCase: testCase
+                });
+            }
+
+            // Add the field path tests.
+            for (let testCase of testCases) {
+                const encoded = ArrInfoEncoder.encode(testCase.input);
+
+                let decoded = {}
+                let success = false
+                let err = null
+                let output = null
+                try {
+                    decoded = answerFieldPathExpression("a.b.c", encoded)
+                    if (decoded.needsFetch) {
+                        addFetch(decoded.needsFetch)
+                        success = true // If we went to the row store we assume we'll get the right answer.
+                    } else {
+                        output = decoded.answer;
+                        success = _.isEqual(decoded.answer, testCase.expectedFieldPathOutput)
+                    }
+                } catch (e) {
+                    err = e
+                    console.log(err);
+                }
+                tests.push({
+                    type: "field path",
+                    expected: testCase.expectedFieldPathOutput,
+                    actualOutput: output,
+                    success: success,
+                    err: err,
+
+                    encoded: encoded,
+                    decoded: decoded,
+                    testCase: testCase
+                });
+            }
+
+            let testResults = {
+                tests: tests,
+                fetchReasonCounts: fetchReasonCounts
+            }
+
+            redisplayTestCases(testResults);
+        }
+
+        function redisplayTestCases(testResults) {
+            const output = document.getElementById('output')
+            output.innerHTML = '';
+            let table = $('<table>');
+            table.appendTo(output);
+            table.append("<thead><tr><td>Input</td><td>Type</td><td>Correct Answer?</td><td>Needed Extra Info?</td><td></td></tr></thead>");
+            let tbody = $('<tbody>');
+            table.append(tbody);
+
+            for (let testResult of testResults.tests) {
+                const testCase = testResult.testCase;
+                const decoded = testResult.decoded;
 
                 let newRow = $('<tr class=testResult>')
                 newRow.append($('<td>').text(JSON.stringify(testCase.input)))
-                newRow.append($('<td>').text(err ? "🔥" : success ? "✅" : "❌"));
+                newRow.append($('<td>').text(testResult.type))
+                newRow.append($('<td>').text(testResult.err ? "🔥" : testResult.success ? "✅" : "❌"));
                 if (decoded.needsFetch) {
                     newRow.append(`<td>🆘 ${decoded.needsFetch}</td>`);
                 } else {
@@ -433,25 +496,25 @@
                 detail.appendTo(detailRow);
                 mkSpan("Input").appendTo(detail);
                 makeJsonNode(testCase.input).appendTo(detail);
-                if (err) {
-                    detail.append(mkSpan(err.toString(), {class: "error"}))
+                if (testResult.err) {
+                    detail.append(mkSpan(testResult.err.toString(), {class: "error"}))
                 } else {
-                    if (output) {
+                    if (testResult.actualOutput) {
                         mkSpan("Output").appendTo(detail);
-                        makeJsonNode(output).appendTo(detail);
+                        makeJsonNode(testResult.actualOutput).appendTo(detail);
                     }
                     mkSpan("Expected").appendTo(detail);
-                    makeJsonNode(testCase.expectedProjectionOutput).appendTo(detail);
+                    makeJsonNode(testResult.expected).appendTo(detail);
                 }
                 detail.append($('<hr>'))
-                addEncoderOutput(encoded, detail, /*withDecoded=*/ false)
+                addEncoderOutput(testResult.encoded, detail, /*withDecoded=*/ false)
                 tbody.append(detailRow);
 
                 btn.click(() => detailRow.toggle())
             }
 
             output.append("\nFetch Reasons:\n")
-            for (let [reason, count] of Object.entries(fetchReasonCounts)) {
+            for (let [reason, count] of Object.entries(testResults.fetchReasonCounts)) {
                 output.append(`    ${reason}: ${count}\n`)
             }
 

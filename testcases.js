@@ -38,12 +38,12 @@ const testCases = [
     {
         'input': { "a": { "b": { "c": "scalar" } } },
         'expectedProjectionOutput': { "a": { "b": { "c": "scalar" } } },
-        'expectedFieldPathOutput': '"scalar"'
+        'expectedFieldPathOutput': "scalar"
     },
     {
         'input': { "a": { "b": { "c": null } } },
         'expectedProjectionOutput': { "a": { "b": { "c": null } } },
-        'expectedFieldPathOutput': 'null'
+        'expectedFieldPathOutput': null
     },
     {
         'input': { "a": { "b": { "c": [[1, 2], [{}], 2] } } },
@@ -457,6 +457,6 @@ const testCases = [
     {
         'input': {a: [{b: {c: 1}}, {b: []}]},
         'expectedProjectionOutput': {a: [{b: {c: 1}}, {b: []}]},
-        'expectedFieldPathOutput': [[1], []],
+        'expectedFieldPathOutput': [1, []],
     },
 ];

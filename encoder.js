@@ -576,6 +576,69 @@ class StringCursor extends CursorBase {
     }
 }
 
+function fieldPathExpressionForArr(arr, pathArr, pathIdx) {
+    let out = [];
+    for (let elt of arr) {
+        if (!$.isPlainObject(elt)) {
+            continue;
+        }
+
+        let res = fieldPathExpressionForObj(
+            elt,
+            pathArr,
+            pathIdx /* note that we don't increment the index here */);
+        if (res != 'missing') {
+            out.push(res);
+        }
+    }
+    return out;
+}
+
+function fieldPathExpressionForObj(obj, pathArr, pathIdx) {
+    if (!(pathArr[pathIdx] in obj)) {
+        return 'missing';
+    }
+    let currentVal = obj[pathArr[pathIdx]];
+
+    if (pathArr.length - 1 == pathIdx) {
+        return currentVal;
+    }
+
+    if ($.isPlainObject(currentVal)) {
+        return fieldPathExpressionForObj(currentVal, pathArr, pathIdx+1);
+    } else if (Array.isArray(currentVal)) {
+        return fieldPathExpressionForArr(currentVal, pathArr, pathIdx+1);
+    } else {
+        return 'missing';
+    }
+}
+
+function answerFieldPathExpression(path, encodingInfo) {
+    let resultObj = answerProjection(path, encodingInfo);
+    if (resultObj.needsFetch) {
+        return resultObj;
+    }
+
+    let pathSplit = path.split('.')
+    let out = fieldPathExpressionForObj(resultObj.answer, pathSplit, 0)
+
+    resultObj.answer = out
+    return resultObj
+}
+
+function answerFieldPathExpression(path, encodingInfo) {
+    let resultObj = answerProjection(path, encodingInfo);
+    if (resultObj.needsFetch) {
+        return resultObj;
+    }
+
+    let pathSplit = path.split('.')
+    let out = fieldPathExpressionForObj(resultObj.answer, pathSplit, 0)
+
+    resultObj.answer = out
+    return resultObj
+}
+
 /**
  * Attempts to compute a projection for a column using the encoding information.
  * @param {String} path The dotted path to compute an inclusion projection for. We want the
