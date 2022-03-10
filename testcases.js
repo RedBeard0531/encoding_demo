@@ -426,13 +426,13 @@ const testCases = [
     },
     {
         'input': {a: [{b: [{c: 1}, {}]}]},
-        'expectedProjectionOutput': {a: {b: [{c: 1}, {}]}},
-        'expectedFieldPathOutput': [1],
+        'expectedProjectionOutput': {a: [{b: [{c: 1}, {}]}]},
+        'expectedFieldPathOutput': [[1]],
     },
     {
         'input': {a: [{b: [{c: 1}, {d: 1}]}]},
-        'expectedProjectionOutput': {a: {b: [{c: 1}, {}]}},
-        'expectedFieldPathOutput': [1],
+        'expectedProjectionOutput': {a: [{b: [{c: 1}, {}]}]},
+        'expectedFieldPathOutput': [[1]],
     },
     {
         'input': {a: [{b: {c: 1}}, {b: {}}]},
@@ -446,7 +446,7 @@ const testCases = [
     },
     {
         'input': {a: [{b: {c: 1}}, {}]},
-        'expectedProjectionOutput': {a: [{b: {c: 1}}, {b: {}}]},
+        'expectedProjectionOutput': {a: [{b: {c: 1}}, {}]},
         'expectedFieldPathOutput': [1],
     },
     {
@@ -456,7 +456,7 @@ const testCases = [
     },
     {
         'input': {a: [{b: {c: 1}}, {b: []}]},
-        'expectedProjectionOutput': {a: [{b: {c: 1}}, {}]},
-        'expectedFieldPathOutput': [1],
+        'expectedProjectionOutput': {a: [{b: {c: 1}}, {b: []}]},
+        'expectedFieldPathOutput': [[1], []],
     },
 ];
