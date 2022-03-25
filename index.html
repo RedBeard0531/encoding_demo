@@ -188,6 +188,9 @@
                 <dd>creates nesting objects as needed
                 <dd>repeats <code>NUMBER</code> <em>additional</em> times
                 <dd>eg, <code>|1</code> is <code>||</code> and <code>|3</code> is <code>||||</code>
+                <dt>o NUMBER?
+                <dd>There was an object here
+                <dd>Does not consume a value
             </dl>
             <div class=wrap>
                 <p>
@@ -207,10 +210,16 @@
                 After a <code>|</code> or a <code>]</code>, any objects between the
                 completed value or array and the next outer array will be implicitly
                 closed. This is because an object can only store a single value in a
-                field (which may be an array), so there is no posibility for another
+                field (which may be an array), so there is no possibility for another
                 value, and therefore there is no need to explicitly encode the closing
                 of an object. The outer most array is never closed, so there will
                 always be a next outer array.
+
+                <p>
+                The <code>o</code> is used to represent the presence of a non-empty
+                object. The contents of this object are not stored in the cell, but
+                the information that there is an object here is useful for preserving
+                certain bizarre semantics of MQL.
 
                 <p>
                 It is an error to run out of values while there is unconsumed
@@ -370,8 +379,6 @@
                 assert(() => 'isSparse' in info)
                 if (info.isSparse) {
                     let marker = '  Marker: IS_SPARSE'
-                    if (info.hasNonEmptySubObjects)
-                        marker += ' (not encoded with HAS_SUB_PATHS)'
                     mkSpan(marker + '\n').appendTo(output)
                 }
 
