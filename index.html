@@ -296,21 +296,20 @@
             for (let i = 0; i < entries.length; i++) {
                 let [k, v] = entries[i];
                 let colorMap = {
-                    vs: 'rgb(104,105,166)',  // purplish.
+                    vals: 'rgb(104,105,166)',  // purplish.
                     flags: 'rgb(209,86,30)',  // redish.
                     arrInfo: 'rgb(38,145,110)'  // dark green.
                 };
                 $('<span>').css({ color: colorMap[k] }).text(k).appendTo(out);
                 $('<span>').text(': ').appendTo(out);
-                if (k == 'vs') {
+                if (k == 'vals') {
                     // Colorized inline json.
                     let values = makeInlineJsonNode(v);
-                    let vsSpan = $('<span>');
-                    values.appendTo(vsSpan);
-                    vsSpan.appendTo(out);
+                    let valsSpan = $('<span>');
+                    values.appendTo(valsSpan);
+                    valsSpan.appendTo(out);
                 } else if (k == 'flags') {
-                    // No quotes - b/c they're just flags?
-                    $('<span>').css({ color: colorMap[k] }).text(`${v}`).appendTo(out);
+                    $('<span>').css({ color: colorMap[k] }).text(`${JSON.stringify(v)}`).appendTo(out);
                 } else if (k == 'arrInfo') {
                     $('<span>').css({ color: colorMap[k] }).text(`"${v}"`).appendTo(out);
                 }
@@ -334,7 +333,7 @@
 
                 let valueObj = {};
                 if (info.hasNonEmptySubObjects)
-                    valueObj.flags = ["HAS_SUB_OBJECTS"];
+                    valueObj.flags = ["HAS_SUB_PATHS"];
                 assert(() => 'isSparse' in info)
                 if (info.isSparse) {
                     if (!valueObj.hasOwnProperty("flags"))
@@ -343,7 +342,7 @@
                 }
 
                 if (info.values.length > 0)
-                    valueObj.vs = info.values;
+                    valueObj.vals = info.values;
                 if (info.arrInfo.length > 0)
                     valueObj.arrInfo = info.arrInfo;
 
@@ -363,7 +362,7 @@
                 mkSpan('\n').appendTo(output)
 
                 if (info.hasNonEmptySubObjects) {
-                    let marker = '  Marker: HAS_SUB_OBJECTS'
+                    let marker = '  Marker: HAS_SUB_PATHS'
                     if (info.values.length == 0)
                         marker += ' (implicit with empty cell value)'
                     mkSpan(marker + '\n').appendTo(output)
@@ -372,7 +371,7 @@
                 if (info.isSparse) {
                     let marker = '  Marker: IS_SPARSE'
                     if (info.hasNonEmptySubObjects)
-                        marker += ' (not encoded with HAS_SUB_OBJECTS)'
+                        marker += ' (not encoded with HAS_SUB_PATHS)'
                     mkSpan(marker + '\n').appendTo(output)
                 }
 
