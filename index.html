@@ -491,7 +491,7 @@
                 let err = null
                 let output = null
                 try {
-                    decoded = ArrInfoDecoder.answerProjection("a.b.c", encoded)
+                    decoded = answerProjection("a.b.c", encoded)
                     if (decoded.needsFetch) {
                         addFetch(decoded.needsFetch)
                         success = true // If we went to the row store we assume we'll get the right answer.
@@ -514,9 +514,10 @@
                 }
 
                 if (decoded.extraColumnsConsulted) {
-                    newRow.append(`<td>${decoded.extraColumnsConsulted}</td>`);
+                    newRow.append(`<td>${decoded.extraColumnsConsulted.join('<br>')}</td>`);
                 } else {
                     newRow.append(`<td></td>`);
+
                 }
 
                 let btn = $('<input type=button class="showResultBtn" value="Detail">');

@@ -50,6 +50,7 @@ class ArrInfoEncoder {
             // empty array treated as leaf scalar
         } else if ($.isPlainObject(elem)) {
             if (!$.isEmptyObject(elem)) {
+                info.rawArrInfos.push(arrInfoPrefix.concat(['o']))
                 return this.walkObj(info, arrInfoPrefix, elem)
             }
             // empty object treated as leaf scalar
@@ -123,8 +124,7 @@ class ArrInfoEncoder {
             this.checkSparse(path, info)
             assert(() => 'isSparse' in info)
 
-            assert(() => info.values.length == info.rawArrInfos.length)
-            if (info.values.length == 0) {
+            if (info.rawArrInfos.length == 0) {
                 info.arrInfo = '';
                 continue // This can happen if we only see this path to mark existence of subobjects
             }
@@ -177,9 +177,10 @@ class ArrInfoEncoder {
 
             // If there are no arrays then no arrayInfo is needed
             if (arrInfo.indexOf('[') == -1) {
-                assert(() => info.values.length == 1)
-                // arrInfo must be a run of { followed by as single |
-                assert(() => arrInfo.join('').match(/^\{*\|$/))
+                assert(() => (info.values.length == 1 && !info.hasNonEmptySubObjects)
+                          || (info.values.length == 0 && info.hasNonEmptySubObjects))
+                // arrInfo must be a run of { followed by a single | or o
+                assert(() => arrInfo.join('').match(/^\{*[\|o]$/))
                 info.arrInfo = ''
                 continue
             }
@@ -190,14 +191,17 @@ class ArrInfoEncoder {
             // encode all numbers, then flatten to a string
             let arrInfoStr = arrInfo.map((e) => typeof e == 'string' ? e : this.encodeNum(e)).join('')
 
-            // Remove any runs of { before a |
-            arrInfoStr = arrInfoStr.replace(/\{+\|/g, '|')
+            // Remove any runs of { before a | or o
+            arrInfoStr = arrInfoStr.replace(/\{+([\|o])/g, '$1')
 
             // Remove final run of |
             arrInfoStr = arrInfoStr.replace(/\|+$/, '')
 
             // Run length encode remaining runs of |
             arrInfoStr = arrInfoStr.replace(/\|(\|+)/g, (_, repeats) => `|${repeats.length}`)
+
+            // Run length encode remaining runs of o
+            arrInfoStr = arrInfoStr.replace(/o(o+)/g, (_, repeats) => `o${repeats.length}`)
 
             info.arrInfo = arrInfoStr
         }
@@ -212,83 +216,16 @@ class ArrInfoDecoder {
         return into
     }
 
-    /**
-     * Attempts to compute a projection for a column using the encoding information.
-     * @param {String} path The dotted path to compute an inclusion projection for. We want the
-     *     object that would result by executing the pipeline [{$project: {<path>: 1}}].
-     * @param {Object} encodingInfo The entire encoding object. Ideally you can reconstruct the
-     *     answer from just `encodingInfo[path]`, but you
-     * @returns {{answer?: Object, extraColumnsConsulted?: string[], needsFetch?: string}}
-     * If you cannot compute the answer with the encoding scheme, just return {needsFetch: true}.
-     */
-    static answerProjection(path, encodingInfo) {
-        if (path in encodingInfo) {
-            let info = encodingInfo[path]
-            if (info.hasNonEmptySubObjects) {
-                return {needsFetch: 'subobject marker'};
-            }
-            if (info.isSparse) {
-                return {needsFetch: 'sparse data marker'};
-            }
-
-            let into = {};
-            new ArrInfoDecoder(path,
-                               info.values,
-                               info.arrInfo,
-                               true /* drop unknowns */
-                              )
-                .decodeRoot(into)
-            return {answer: into};
-        }
-
-        const parentPath = ArrInfoEncoder.parentPath(path);
-        let ret = {extraColumnsConsulted: [parentPath]};
-        if (parentPath in encodingInfo) {
-            let parentInfo = encodingInfo[parentPath];
-            if (parentInfo.hasNonEmptySubObjects) {
-                ret.needsFetch = 'parent subobject marker';
-                return ret;
-            }
-            if (parentInfo.isSparse) {
-                ret.needsFetch = 'parent sparse data marker';
-                return ret;
-            }
-
-            // If the parent contains just an empty array, we can answer the projection
-            // without going to the row store.
-            if (parentInfo.values.length == 1 &&
-                Array.isArray(parentInfo.values[0]) &&
-                parentInfo.values[0].length == 0) {
-                let into = {};
-                new ArrInfoDecoder(parentPath,
-                                   parentInfo.values,
-                                   parentInfo.arrInfo,
-                                   true /* drop unknowns */
-                                  )
-                    .decodeRoot(into)
-                ret.answer = into;
-                return ret;
-            }
-        }
-        ret.needsFetch = 'no data for path';
-        return ret;
-    }
-
-    constructor(path, values, arrInfo, dropUnknowns=false) {
+    constructor(path, values, arrInfo) {
         // Last argument is true for cursors that are only read from at the end of processing a value.
         // This results in better error printing, by putting the cursor on the element where the error applies.
         this.path = new ArrayCursor('path', path.split('.'), false)
         this.values = new ArrayCursor('values', values, true) // Always read after doing all checks
         this.arrInfo = new StringCursor('arrInfo', arrInfo, false)
 
-        this.dropUnknowns = dropUnknowns;
-
         // thes are only used for error reporting
         this.into = {}
         this.outputPos = []
-
-        this.uassert('must have at least one value',
-            values.length > 0)
 
         // Guaranteed by String.split()
         assert(() => this.path.length > 0, this.path, path)
@@ -297,24 +234,33 @@ class ArrInfoDecoder {
     decodeRoot(into = {}) {
         this.into = into
 
-        if (!this.arrInfo.empty())
-            return this.decodeObj(into)
+        if (!this.arrInfo.empty()) {
+            this.decodeObj(into)
+            this.uassert("must consume full arrInfo",
+                         !this.arrInfo.hasMore())
+            this.uassert("must consume all values",
+                         !this.values.hasMore())
+            return
+        }
 
         // Simple no-array case:
-        this.uassert('when arrInfo is empty, must have exactly one value',
-                     this.values.length == 1)
-        this.decodeNestedPath(into)
+        this.uassert('when arrInfo is empty, must have zero or one values',
+                     this.values.length <= 1)
+        this.decodeNestedPath(into, this.values.length == 0 ? 'o' : '|')
     }
 
-    decodeNestedPath(into) {
+    decodeNestedPath(into, action) {
         const field = this.consumePathPart()
         this.uassert(`attempting to insert a field '${field}' into non-object ${into}`,
                      $.isPlainObject(into))
 
         if (this.path.hasMore()) {
             if (!(field in into)) into[field] = {}
-            this.decodeNestedPath(into[field])
+            this.decodeNestedPath(into[field], action)
+        } else if (action == 'o') {
+            if (!(field in into)) into[field] = {}
         } else {
+            assert(() => action == '|')
             this.uassert(`attempting to overwrite field '${field}'`,
                          !(field in into))
             into[field] = this.consumeValue()
@@ -339,9 +285,10 @@ class ArrInfoDecoder {
                 this.decodeArr(into[field])
                 break
 
-            // These are both error cases
+            // These are all error cases
+            case 'o':
             case '|':
-                this.uassert(`encountered a '|' following a '{'. Runs of '{' before a '|' are redundant and should be removed`,
+                this.uassert(`encountered a '${action}' following a '{'. Runs of '{' before a '${action}' are redundant and should be removed`,
                              false)
             default:
                 this.uassert(`unexpected action '${action}' while decoding an object, expected one of [{`,
@@ -369,22 +316,28 @@ class ArrInfoDecoder {
 
             const action = this.consumeArrInfo()
             switch (action) {
+                case 'o':
                 case '|':
                     inserted = true
                     let repeatsRemaining = this.arrInfo.consumeOptionalNumber()
                     do {
                         if (this.path.hasMore()) {
                             if (into[index] == undefined) into[index] = {}
-                            this.decodeNestedPath(into[index++])
+                            this.decodeNestedPath(into[index], action)
+                        } else if (action == 'o') {
+                            if (into[index] == undefined) into[index] = {}
                         } else {
+                            assert(() => action == '|')
                             this.uassert(`attempting to overwrite element at index ${index}`,
                                 into[index] == undefined,
                                 {into})
-                            into[index++] = this.consumeValue()
+                            into[index] = this.consumeValue()
                         }
+
+                        index++;
                     } while (repeatsRemaining--);
-                    this.uassert("Extra | not run-length-encoded",
-                        !(this.arrInfo.hasMore() && this.arrInfo.peek() == '|'))
+                    this.uassert(`Extra ${action} not run-length-encoded`,
+                        !(this.arrInfo.hasMore() && this.arrInfo.peek() == action))
                     break
                 case '{':
                     inserted = true
@@ -413,19 +366,10 @@ class ArrInfoDecoder {
             }
         }
         this.outputPos.pop()
-
-        if (this.dropUnknowns)
-            _.pull(into, undefined)
-
     }
 
     done() {
-        if (this.values.hasMore())
-            return false
-
-        this.uassert("ran out of values before consuming full arrInfo",
-                     this.consumedAllArrInfo)
-        return true
+        return !(this.values.hasMore() || this.arrInfo.hasMore())
     }
 
     consumePathPart() {
@@ -456,6 +400,7 @@ class ArrInfoDecoder {
 
     uassert(msg, cond, extra = {}) {
         if (cond) return
+        console.assert(false, msg)
         throw new ErrorWithCursors(msg, this.path, this.arrInfo, this.values)
             .addExtra({
                 outputPos: this.outputPos,
@@ -628,5 +573,90 @@ class StringCursor extends CursorBase {
         if (!this.peekIsNumber())
             throw new ErrorWithCursors(`expected a number but found '${this.peek()}'`, this)
         return this.consumeOptionalNumber();
+    }
+}
+
+/**
+ * Attempts to compute a projection for a column using the encoding information.
+ * @param {String} path The dotted path to compute an inclusion projection for. We want the
+ *     object that would result by executing the pipeline [{$project: {<path>: 1}}].
+ * @param {Object} encodingInfo The entire encoding object. Ideally you can reconstruct the
+ *     answer from just `encodingInfo[path]`, but you
+ * @returns {{answer?: Object, extraColumnsConsulted?: string[], needsFetch?: string}}
+ * If you cannot compute the answer with the encoding scheme, just return {needsFetch: true}.
+ */
+function answerProjection(path, encodingInfo) {
+    let info = encodingInfo[path]
+    if (info && info.hasNonEmptySubObjects)
+        return {needsFetch: 'subobject marker'}
+
+    let reassembled = {}
+    let extraColumnsConsulted = []
+    if (!info || info.isSparse)
+        ProjectionImpl.consultParentForProjection(path, encodingInfo, reassembled, extraColumnsConsulted)
+
+
+    if (info) {
+        new ArrInfoDecoder(path,
+                           info.values,
+                           info.arrInfo,
+                          )
+            .decodeRoot(reassembled)
+    }
+
+    return {
+        answer: ProjectionImpl.doProjectionObj(path, reassembled),
+        extraColumnsConsulted: extraColumnsConsulted,
+    }
+}
+
+class ProjectionImpl {
+    static doProjectionObj(path, obj) {
+        let out = {}
+
+        const [field, ...remainingPath] = path.split('.')
+        const val = obj[field]
+        if (val !== undefined) {
+            if (remainingPath.length == 0) {
+                // We decended far enough, insert whatever we found.
+                out[field] = val
+            } else if ($.isPlainObject(val)) {
+                out[field] = ProjectionImpl.doProjectionObj(remainingPath.join('.'), val)
+            } else if (Array.isArray(val)) {
+                out[field] = ProjectionImpl.doProjectionArr(remainingPath.join('.'), val)
+            }
+        }
+        return out
+    }
+
+    static doProjectionArr(path, arr) {
+        let out = []
+        for (let val of arr) {
+            if ($.isPlainObject(val)) {
+                out.push(ProjectionImpl.doProjectionObj(path, val))
+            } else if (Array.isArray(val)) {
+                out.push(ProjectionImpl.doProjectionArr(path, val))
+            }
+        }
+        return out
+    }
+
+    static consultParentForProjection(childPath, encodingInfo, into, extraColumnsConsulted) {
+        let path = ArrInfoEncoder.parentPath(childPath)
+        if (!path)
+            return // top level fields are never considered sparse
+        extraColumnsConsulted.push(path)
+
+        let info = encodingInfo[path]
+        if (!info || info.isSparse) {
+            ProjectionImpl.consultParentForProjection(path, encodingInfo, into, extraColumnsConsulted)
+        }
+        if (info) {
+            new ArrInfoDecoder(path,
+                               info.values,
+                               info.arrInfo,
+                              )
+                .decodeRoot(into)
+        }
     }
 }
